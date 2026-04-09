@@ -1,4 +1,4 @@
-import os, json, re, requests
+import os, json, re, requests, random
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -7,6 +7,109 @@ DEEPSEEK_KEY   = os.environ["DEEPSEEK_API_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 BJT = timezone(timedelta(hours=8))
+
+# 科技名言库，每天随机选一条
+TECH_QUOTES = [
+    ("预测未来的最好方式，就是去创造它。", "艾伦·凯", "计算机科学家"),
+    ("Stay hungry, stay foolish.", "史蒂夫·乔布斯", "苹果创始人"),
+    ("任何足够先进的技术，都与魔法无异。", "亚瑟·克拉克", "科幻作家"),
+    ("人工智能是人类最后的发明。", "尼克·博斯特罗姆", "哲学家"),
+    ("最好的创业方式，是解决你自己遇到的问题。", "保罗·格雷厄姆", "Y Combinator 创始人"),
+    ("如果你不感到尴尬，说明你发布得太晚了。", "里德·霍夫曼", "LinkedIn 创始人"),
+    ("我们总是高估未来两年的变化，低估未来十年的变化。", "比尔·盖茨", "微软创始人"),
+    ("创新区分了领导者和跟随者。", "史蒂夫·乔布斯", "苹果创始人"),
+    ("大部分人高估了一年能做的事，低估了十年能做的事。", "比尔·盖茨", "微软创始人"),
+    ("AI 不会取代人类，但会用 AI 的人会取代不用 AI 的人。", "黄仁勋", "英伟达 CEO"),
+    ("快速行动，打破常规。", "马克·扎克伯格", "Meta CEO"),
+    ("当一个行业即将被颠覆时，身在其中的人往往最后才察觉。", "克莱顿·克里斯坦森", "哈佛商学院教授"),
+    ("不要因为走得太远，而忘记为什么出发。", "纪伯伦", "诗人"),
+    ("软件正在吞噬世界。", "马克·安德森", "a16z 联合创始人"),
+    ("真正的风险不是做得太多，而是做得太少。", "萨姆·奥特曼", "OpenAI CEO"),
+    ("十年后你会因为没做的事而后悔，而不是因为做过的事。", "杰夫·贝索斯", "亚马逊创始人"),
+    ("未来已来，只是分布不均匀。", "威廉·吉布森", "科幻作家"),
+    ("最危险的事情不是人工智能有自己的意志，而是人类没有。", "尤瓦尔·赫拉利", "历史学家"),
+    ("把每一天当作最后一天来过，有一天你会发现自己是对的。", "史蒂夫·乔布斯", "苹果创始人"),
+    ("在一个变化越来越快的世界里，唯一的策略就是学习的速度比变化更快。", "埃里克·施密特", "谷歌前CEO"),
+    ("我对 AI 的乐观，不是因为技术有多强，而是因为人类有多需要它。", "达里奥·阿莫代", "Anthropic CEO"),
+    ("想象力比知识更重要。", "阿尔伯特·爱因斯坦", "物理学家"),
+    ("第一步是确立一件事是可能的，然后概率就会发生。", "埃隆·马斯克", "特斯拉/SpaceX CEO"),
+    ("伟大的产品不是被设计出来的，是被发现的。", "张一鸣", "字节跳动创始人"),
+    ("所有的模型都是错的，但有些是有用的。", "乔治·博克斯", "统计学家"),
+    ("技术是把双刃剑，但不拥抱它的代价更大。", "李开复", "创新工场创始人"),
+    ("下一个大事件，永远看起来像玩具。", "克里斯·迪克森", "a16z 合伙人"),
+    ("数据是新的石油。", "克莱夫·亨比", "数学家"),
+    ("当你把世界上最聪明的人聚在一起，奇迹就会发生。", "拉里·佩奇", "谷歌联合创始人"),
+    ("简洁是终极的复杂。", "达·芬奇", "文艺复兴巨匠"),
+]
+
+WEEKDAY_MAP = {
+    0: "星 期 一", 1: "星 期 二", 2: "星 期 三",
+    3: "星 期 四", 4: "星 期 五", 5: "星 期 六", 6: "星 期 日",
+}
+
+# 宜忌库
+YI_OPTIONS = [
+    "深度学习 拥抱变化", "大胆尝试 勇于创新", "独立思考 质疑权威",
+    "专注执行 少刷手机", "跨界探索 打破边界", "复盘总结 持续迭代",
+    "阅读论文 拓宽视野", "提出假设 验证想法", "协作共创 开放分享",
+]
+JI_OPTIONS = [
+    "闭门造车", "盲目跟风", "纸上谈兵",
+    "故步自封", "拖延症发作", "信息茧房",
+    "过度优化", "完美主义", "只收藏不行动",
+]
+
+
+def generate_calendar_card():
+    """自动生成每日日历卡片 HTML"""
+    now = datetime.now(BJT)
+    year = now.strftime("%Y")
+    month_cn = f"{now.month}月"
+    month_en = now.strftime("%b").capitalize()
+    day = now.strftime("%d")
+    weekday = WEEKDAY_MAP[now.weekday()]
+
+    # 随机选名言、宜忌
+    random.seed(now.strftime("%Y%m%d"))  # 每天固定随机种子，同一天多次运行结果一致
+    quote_text, quote_author, quote_title = random.choice(TECH_QUOTES)
+    yi = random.choice(YI_OPTIONS)
+    ji = random.choice(JI_OPTIONS)
+
+    card_html = f"""
+<section style="margin-top:36px;width:100%;max-width:420px;margin-left:auto;margin-right:auto;">
+<section style="background:linear-gradient(170deg,#0b1a3b 0%,#14305e 45%,#1a4080 100%);border-radius:16px;overflow:hidden;">
+
+<section style="background:rgba(255,255,255,0.08);padding:14px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);">
+<p style="font-size:16px;font-weight:700;color:#fff;letter-spacing:3px;margin:0;">鹏眼观天下</p>
+<p style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.6);margin:0;font-family:sans-serif;">{month_cn} {month_en}</p>
+</section>
+
+<section style="padding:32px 28px 20px;text-align:center;">
+<p style="font-size:18px;color:rgba(255,255,255,0.45);letter-spacing:6px;margin:0;font-family:sans-serif;">{year}</p>
+<p style="font-size:120px;font-weight:900;color:#fff;line-height:1;margin:0;font-family:sans-serif;">{day}</p>
+<p style="font-size:20px;color:rgba(255,255,255,0.55);letter-spacing:10px;margin:4px 0 20px;">{weekday}</p>
+
+<section style="display:flex;justify-content:center;gap:36px;margin-bottom:24px;">
+<p style="font-size:15px;color:rgba(255,255,255,0.7);margin:0;"><span style="font-size:13px;padding:3px 10px;border-radius:5px;font-weight:700;background:rgba(100,180,255,0.2);color:#7ab8ff;">宜</span> {yi}</p>
+<p style="font-size:15px;color:rgba(255,255,255,0.7);margin:0;"><span style="font-size:13px;padding:3px 10px;border-radius:5px;font-weight:700;background:rgba(255,100,100,0.15);color:#ff8a8a;">忌</span> {ji}</p>
+</section>
+</section>
+
+<section style="background:rgba(255,255,255,0.05);padding:24px 28px;border-top:1px solid rgba(255,255,255,0.06);">
+<p style="font-size:18px;color:rgba(255,255,255,0.9);line-height:1.8;text-align:center;margin:0 0 12px;">"{quote_text}"</p>
+<p style="font-size:14px;color:rgba(255,255,255,0.4);text-align:center;margin:0;">—— {quote_author}（{quote_title}）</p>
+</section>
+
+<section style="padding:14px 28px;display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.2);">
+<p style="margin:0;">鹏眼观天下 · 每日科技简报</p>
+<p style="margin:0;">全球视野 / 科技洞察</p>
+</section>
+
+</section>
+</section>
+"""
+    return card_html
+
 
 DISCLAIMER = """
 <section style="margin-top:28px;padding:14px 16px;background:#f9f9f9;border-radius:6px;">
@@ -96,12 +199,10 @@ def fetch_newsapi():
 
 
 def fetch_hackernews():
-    """Hacker News：技术社区热门话题（前沿技术、开源项目、行业讨论）"""
+    """Hacker News：技术社区热门话题"""
     try:
-        # 获取 top stories
         resp = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15)
         story_ids = resp.json()[:20]
-
         articles = []
         for sid in story_ids:
             try:
@@ -111,7 +212,6 @@ def fetch_hackernews():
                 title = item.get("title", "")
                 score = item.get("score", 0)
                 url = item.get("url", "")
-                # 只要科技相关的高分内容
                 tech_keywords = ["ai", "gpt", "llm", "openai", "google", "apple", "nvidia", "tesla",
                                  "microsoft", "meta", "startup", "funding", "chip", "robot", "model",
                                  "launch", "release", "billion", "acquisition", "open source",
@@ -133,7 +233,7 @@ def fetch_hackernews():
 
 
 def fetch_techcrunch_rss():
-    """TechCrunch RSS：行业深度报道、融资新闻"""
+    """TechCrunch RSS：行业深度报道"""
     url = "https://techcrunch.com/feed/"
     try:
         resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
@@ -198,7 +298,7 @@ def summarize(news_text):
 - 按重要性排列，最重磅的新闻放在最前面
 - 同一事件的多条新闻合并为一条
 - 只保留真正有价值的新闻（5-7条），不要凑数
-- 如果 Hacker News 有高热度的有趣话题（技术讨论、开源项目等），可以作为"社区热议"单独写一条
+- 如果 Hacker News 有高热度的有趣话题，可以作为"社区热议"单独写一条
 
 ### 2. 分类标签（在标题前用emoji标注）
 - 🤖 AI与大模型
@@ -241,6 +341,7 @@ TechCrunch→TechCrunch，The Verge→The Verge，Bloomberg→彭博社，Reuter
 - 不要加"每日简报"之类的大标题
 - 不要在底部单独列来源行
 - 不要加免责声明（代码会自动追加）
+- 不要加日历卡片（代码会自动追加）
 
 ### 7. 开头引言格式
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
@@ -314,7 +415,9 @@ if __name__ == "__main__":
         print(f"共获取 {len(all_articles)} 条新闻")
         print("生成科技深度简报...")
         summary = summarize(news_text)
-        summary = summary + DISCLAIMER
+        # 自动追加免责声明 + 日历卡片
+        calendar = generate_calendar_card()
+        summary = summary + DISCLAIMER + calendar
         print("推送微信...")
         send_pushplus(title, summary)
 

@@ -1,10 +1,10 @@
-name: Trump Daily Digest
+name: Tech Daily Digest
 
 on:
   schedule:
     # UTC 23:00 = 北京时间早上 7:00
     - cron: '0 23 * * *'
-  workflow_dispatch:  # 允许手动点击运行（测试用）
+  workflow_dispatch:  # 允许手动运行
 
 jobs:
   digest:

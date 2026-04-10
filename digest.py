@@ -60,13 +60,13 @@ def generate_calendar_card():
     ji = random.choice(JI_OPTIONS)
 
     return f"""
-<section style="margin:32px auto 0;max-width:320px;">
+<section style="margin:32px auto 0;max-width:360px;">
 <section style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e8e8e8;">
 <section style="background:#c0392b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
 <p style="font-size:14px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
 <p style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
 </section>
-<section style="padding:28px 20px 20px;text-align:center;background:#fff;">
+<section style="padding:20px 20px 14px;text-align:center;background:#fff;">
 <p style="font-size:13px;color:#999;letter-spacing:4px;margin:0;">{year}</p>
 <p style="font-size:80px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0;font-family:Georgia,serif;">{day}</p>
 <p style="font-size:15px;color:#666;letter-spacing:4px;margin:0 0 12px;">{weekday}</p>
@@ -106,8 +106,6 @@ def get_time_range():
     start_time = end_time - timedelta(hours=24)
     return start_time, end_time
 
-
-# ===== 四信源抓取 =====
 
 def fetch_google_news():
     queries = [
@@ -215,8 +213,6 @@ def fetch_techcrunch_rss():
         return []
 
 
-# ===== 第一步：DeepSeek 生成初稿 =====
-
 def deepseek_draft(news_text):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
@@ -270,10 +266,8 @@ def deepseek_draft(news_text):
         return None
 
 
-# ===== 第二步：豆包润色 + 校验 + 排版 =====
-
 def doubao_polish(draft):
- prompt = f"""你是"鹏眼观天下"公众号的主编。你的读者是普通人——可能是上班族、大学生、宝妈、小老板，他们对科技感兴趣但不是从业者，很多专业名词他们不懂。你的任务是把初稿改写成"让不懂科技的人也能看得津津有味"的公众号文章。
+    prompt = f"""你是"鹏眼观天下"公众号的主编。你的读者是普通人——可能是上班族、大学生、宝妈、小老板，他们对科技感兴趣但不是从业者，很多专业名词他们不懂。你的任务是把初稿改写成"让不懂科技的人也能看得津津有味"的公众号文章。
 
 ## 第一：事实校验
 - 检查初稿中是否有逻辑矛盾或不合理信息
@@ -285,19 +279,19 @@ def doubao_polish(draft):
 ### 核心原则：像给朋友科普一样写
 - 你的读者没听过 Anthropic、RISC-V、CoreWeave 这些名字
 - 每个专业名词/公司名第一次出现时，加一句大白话解释
-  ✅ "Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
-  ✅ "RISC-V（一种开源的芯片设计方案，类似安卓在手机系统里的角色）"
-  ❌ 直接写 "Anthropic发布了新模型"——读者不知道这是谁
+  好的示例："Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
+  好的示例："RISC-V（一种开源的芯片设计方案，类似安卓在手机系统里的角色）"
+  不好的示例：直接写 "Anthropic发布了新模型"——读者不知道这是谁
 
 ### 多用生活化类比
-  ✅ "AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
-  ✅ "Meta砸210亿买算力，相当于一口气买了一整栋写字楼的超级电脑。"
-  ❌ "Meta与CoreWeave签署算力基础设施合同"——太干了
+  好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
+  好的示例："Meta砸210亿买算力，相当于一口气买了一整栋写字楼的超级电脑。"
+  不好的示例："Meta与CoreWeave签署算力基础设施合同"——太干了
 
 ### 告诉读者"这和你有什么关系"
   每条点评最后加一句和普通人相关的话：
-  ✅ "对咱们普通用户来说，AI工具打价格战是好事，以后用ChatGPT可能更便宜。"
-  ✅ "虽然听着离我们很远，但这种安全问题一旦出事，你的网银、社交账号都可能受影响。"
+  好的示例："对咱们普通用户来说，AI工具打价格战是好事，以后用ChatGPT可能更便宜。"
+  好的示例："虽然听着离我们很远，但这种安全问题一旦出事，你的网银、社交账号都可能受影响。"
 
 ### 语气要求
 - 像一个懂行的朋友在饭桌上给你讲今天看到的新鲜事
@@ -397,7 +391,6 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    # 抓取新闻
     print("=== 1/5 抓取新闻 ===")
     print("  Google News...")
     google_articles = fetch_google_news()
@@ -417,30 +410,25 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        # DeepSeek 初稿
         print("=== 2/5 DeepSeek 生成初稿 ===")
         draft = deepseek_draft(news_text)
 
         if draft:
-            # 豆包润色+排版
             print("=== 3/5 豆包润色+校验+排版 ===")
             polished = doubao_polish(draft)
 
             if polished:
                 final = clean_response(polished)
             else:
-                # 豆包失败，用DeepSeek初稿兜底
                 print("  豆包失败，使用DeepSeek初稿")
                 final = f"<p style='color:#999;font-size:12px;'>（本期为初稿版本，润色服务暂时不可用）</p>\n{draft}"
         else:
             final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
 
-        # 追加免责声明 + 日历卡片
         print("=== 4/5 生成日历卡片 ===")
         calendar = generate_calendar_card()
         final = final + DISCLAIMER + calendar
 
-        # 推送
         print("=== 5/5 推送微信 ===")
         send_pushplus(title, final)
 

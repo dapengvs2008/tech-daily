@@ -214,7 +214,7 @@ def fetch_techcrunch_rss():
 
 
 def generate_cover_image(title_text):
-prompt = f"""A clean flat illustration about: {title_text}. Blue and white color scheme, modern minimalist tech style. Elements: circuits, chips, robots, data streams, rockets. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image. No human faces. Horizontal composition, professional and futuristic."""
+    prompt = f"A clean flat illustration about: {title_text}. Blue and white color scheme, modern minimalist tech style. Elements: circuits, chips, robots, data streams, rockets. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image. No human faces. Horizontal composition, professional and futuristic."
 
     try:
         resp = requests.post(
@@ -243,8 +243,6 @@ prompt = f"""A clean flat illustration about: {title_text}. Blue and white color
     except Exception as e:
         print(f"封面图请求失败: {e}")
         return None
-
-
 def deepseek_draft(news_text):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"

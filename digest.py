@@ -333,7 +333,7 @@ def doubao_polish(draft):
         resp = requests.post(
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
             headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-1.5-pro-256k", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
+            json={"model": "Doubao-Seed-2.0-pro", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
             timeout=90,
         )
         data = resp.json()

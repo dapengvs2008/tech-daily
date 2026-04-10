@@ -273,58 +273,75 @@ def deepseek_draft(news_text):
 # ===== 第二步：豆包润色 + 校验 + 排版 =====
 
 def doubao_polish(draft):
-    prompt = f"""你是"鹏眼观天下"公众号的主编。下面是今天科技日报的初稿，请你完成三件事：
+ prompt = f"""你是"鹏眼观天下"公众号的主编。你的读者是普通人——可能是上班族、大学生、宝妈、小老板，他们对科技感兴趣但不是从业者，很多专业名词他们不懂。你的任务是把初稿改写成"让不懂科技的人也能看得津津有味"的公众号文章。
 
 ## 第一：事实校验
-- 检查初稿中是否有逻辑矛盾或明显不合理的信息
-- 标注了"单一信源，待验证"的内容，用更谨慎的措辞（"据报道""有消息称"）
-- 如果发现明显错误，直接修正或删除
+- 检查初稿中是否有逻辑矛盾或不合理信息
+- 标注了"单一信源，待验证"的内容，用谨慎措辞（"据报道""有消息称"）
+- 发现明显错误直接修正或删除
 
-## 第二：文字润色
-把初稿改写成有温度、有人情味的公众号文章。具体要求：
-- 像一个懂行的朋友在聊天，不要像AI在生成报告
-- 说人话，不要用"赋能""生态""闭环""底层逻辑""范式转移"等AI套话
-- 用生动的类比解释技术概念，比如"模型蒸馏就是——你花十亿研发的配方，被人一杯奶茶的成本抄走了"
-- 长短句交替，偶尔用短句做节奏感："OpenAI出手了。不是小打小闹。"
-- 点评要有态度、有锐度，不要四平八稳的废话
-- 标题要抓眼球，让人忍不住点进来
+## 第二：面向科技小白的改写（最重要！）
+
+### 核心原则：像给朋友科普一样写
+- 你的读者没听过 Anthropic、RISC-V、CoreWeave 这些名字
+- 每个专业名词/公司名第一次出现时，加一句大白话解释
+  ✅ "Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
+  ✅ "RISC-V（一种开源的芯片设计方案，类似安卓在手机系统里的角色）"
+  ❌ 直接写 "Anthropic发布了新模型"——读者不知道这是谁
+
+### 多用生活化类比
+  ✅ "AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
+  ✅ "Meta砸210亿买算力，相当于一口气买了一整栋写字楼的超级电脑。"
+  ❌ "Meta与CoreWeave签署算力基础设施合同"——太干了
+
+### 告诉读者"这和你有什么关系"
+  每条点评最后加一句和普通人相关的话：
+  ✅ "对咱们普通用户来说，AI工具打价格战是好事，以后用ChatGPT可能更便宜。"
+  ✅ "虽然听着离我们很远，但这种安全问题一旦出事，你的网银、社交账号都可能受影响。"
+
+### 语气要求
+- 像一个懂行的朋友在饭桌上给你讲今天看到的新鲜事
+- 可以用"说白了""换句话说""你可以理解为"这类过渡
+- 偶尔带点幽默："OpenAI这次也不装了，直接在文件里写'我怕对手抢生意'。"
+- 不要用"赋能""生态""闭环""底层逻辑""范式转移"
 
 ## 第三：公众号排版
-直接输出微信公众号兼容的HTML，所有样式内联。格式如下：
+直接输出微信公众号兼容的HTML，所有样式内联。
 
-总标题：
+总标题（要让不懂科技的人也想点进来）：
 <p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
 
-引言：
+引言（一两句话勾起好奇心）：
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
 <p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言内容</p>
 </section>
 
 每条新闻：
 <section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">【emoji 标题】</p>
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文内容</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">【emoji 标题——用大白话，让人一看就懂】</p>
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词要加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">💡 鹏眼点评：xxxx</p>
+<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">💡 鹏眼点评：分析+和普通人的关系</p>
 </section>
 </section>
 <p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
 
 结尾要点：
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">📌 今日科技圈要点</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">① <b>最值得关注的趋势</b>：xxxx</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">② <b>资本信号</b>：xxxx</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0;">③ <b>明天看什么</b>：xxxx</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">📌 今天的科技圈，三句话说清楚</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">① <b>最重要的一件事</b>：xxxx（用大白话）</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">② <b>钱往哪儿流</b>：xxxx</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0;">③ <b>接下来看什么</b>：xxxx</p>
 </section>
 
 ## 严格禁止
 - 不要用```代码块
 - 不要用markdown的**加粗**，用<b>标签
-- 不要用<h1><h2><h3>，全部用<p>加内联style
-- 不要用<div>，全部用<section>
+- 不要用<h1><h2><h3>，用<p>加内联style
+- 不要用<div>，用<section>
 - 不要加免责声明和日历卡片（代码自动追加）
 - 不要在底部单独列来源
+- 专业名词不能不加解释直接出现
 
 初稿内容：
 {draft}"""

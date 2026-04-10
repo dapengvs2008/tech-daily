@@ -60,13 +60,13 @@ def generate_calendar_card():
     ji = random.choice(JI_OPTIONS)
 
     return f"""
-<section style="margin:32px auto 0;max-width:360px;">
+<section style="margin:32px auto 0;max-width:320px;">
 <section style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e8e8e8;">
 <section style="background:#c0392b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
 <p style="font-size:14px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
 <p style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
 </section>
-<section style="padding:20px 20px 14px;text-align:center;background:#fff;">
+<section style="padding:28px 20px 20px;text-align:center;background:#fff;">
 <p style="font-size:13px;color:#999;letter-spacing:4px;margin:0;">{year}</p>
 <p style="font-size:80px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0;font-family:Georgia,serif;">{day}</p>
 <p style="font-size:15px;color:#666;letter-spacing:4px;margin:0 0 12px;">{weekday}</p>

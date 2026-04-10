@@ -77,9 +77,9 @@ def generate_calendar_card():
 </section>
 <section style="border-top:1px solid #f0f0f0;padding:18px 18px;background:#fafafa;">
 <p style="font-size:13px;color:#333;line-height:1.8;text-align:center;margin:0 0 8px;">"{quote_text}"</p>
-<p style="font-size:11px;color:#999;text-align:center;margin:0;">—— {quote_author}</p>
+<p style="font-size:11px;color:#666;text-align:center;margin:0;">—— {quote_author}</p>
 </section>
-<section style="padding:8px 18px;display:flex;justify-content:space-between;font-size:10px;color:#ccc;">
+<section style="padding:8px 18px;display:flex;justify-content:space-between;font-size:10px;color:#999;">
 <p style="margin:0;">鹏眼观天下</p>
 <p style="margin:0;">全球视野 / 科技洞察</p>
 </section>

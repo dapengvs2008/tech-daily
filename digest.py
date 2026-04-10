@@ -214,11 +214,7 @@ def fetch_techcrunch_rss():
 
 
 def generate_cover_image(title_text):
-    prompt = f"""科技感插画，扁平设计风格，蓝色和白色为主色调，简洁现代。
-主题：{title_text}
-要求：无文字、无人物面部、适合作为公众号封面的横版构图（16:9比例），
-画面元素可以包含：芯片、电路板、机器人、数据流、地球、火箭、代码等科技元素，
-整体风格干净、专业、有未来感。"""
+prompt = f"""A clean flat illustration about: {title_text}. Blue and white color scheme, modern minimalist tech style. Elements: circuits, chips, robots, data streams, rockets. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image. No human faces. Horizontal composition, professional and futuristic."""
 
     try:
         resp = requests.post(
@@ -227,7 +223,7 @@ def generate_cover_image(title_text):
             json={
                 "model": "doubao-seedream-4-0-250828",
                 "prompt": prompt,
-                "size": "1536x640",
+                "size": "1296x720",
                 "n": 1,
             },
             timeout=60,

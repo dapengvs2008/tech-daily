@@ -8,107 +8,92 @@ PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 BJT = timezone(timedelta(hours=8))
 
-# 科技名言库，每天随机选一条
-TECH_QUOTES = [
-    ("预测未来的最好方式，就是去创造它。", "艾伦·凯", "计算机科学家"),
-    ("Stay hungry, stay foolish.", "史蒂夫·乔布斯", "苹果创始人"),
-    ("任何足够先进的技术，都与魔法无异。", "亚瑟·克拉克", "科幻作家"),
-    ("人工智能是人类最后的发明。", "尼克·博斯特罗姆", "哲学家"),
-    ("最好的创业方式，是解决你自己遇到的问题。", "保罗·格雷厄姆", "Y Combinator 创始人"),
-    ("如果你不感到尴尬，说明你发布得太晚了。", "里德·霍夫曼", "LinkedIn 创始人"),
-    ("我们总是高估未来两年的变化，低估未来十年的变化。", "比尔·盖茨", "微软创始人"),
-    ("创新区分了领导者和跟随者。", "史蒂夫·乔布斯", "苹果创始人"),
-    ("大部分人高估了一年能做的事，低估了十年能做的事。", "比尔·盖茨", "微软创始人"),
-    ("AI 不会取代人类，但会用 AI 的人会取代不用 AI 的人。", "黄仁勋", "英伟达 CEO"),
-    ("快速行动，打破常规。", "马克·扎克伯格", "Meta CEO"),
-    ("当一个行业即将被颠覆时，身在其中的人往往最后才察觉。", "克莱顿·克里斯坦森", "哈佛商学院教授"),
-    ("不要因为走得太远，而忘记为什么出发。", "纪伯伦", "诗人"),
-    ("软件正在吞噬世界。", "马克·安德森", "a16z 联合创始人"),
-    ("真正的风险不是做得太多，而是做得太少。", "萨姆·奥特曼", "OpenAI CEO"),
-    ("十年后你会因为没做的事而后悔，而不是因为做过的事。", "杰夫·贝索斯", "亚马逊创始人"),
-    ("未来已来，只是分布不均匀。", "威廉·吉布森", "科幻作家"),
-    ("最危险的事情不是人工智能有自己的意志，而是人类没有。", "尤瓦尔·赫拉利", "历史学家"),
-    ("把每一天当作最后一天来过，有一天你会发现自己是对的。", "史蒂夫·乔布斯", "苹果创始人"),
-    ("在一个变化越来越快的世界里，唯一的策略就是学习的速度比变化更快。", "埃里克·施密特", "谷歌前CEO"),
-    ("我对 AI 的乐观，不是因为技术有多强，而是因为人类有多需要它。", "达里奥·阿莫代", "Anthropic CEO"),
-    ("想象力比知识更重要。", "阿尔伯特·爱因斯坦", "物理学家"),
-    ("第一步是确立一件事是可能的，然后概率就会发生。", "埃隆·马斯克", "特斯拉/SpaceX CEO"),
-    ("伟大的产品不是被设计出来的，是被发现的。", "张一鸣", "字节跳动创始人"),
-    ("所有的模型都是错的，但有些是有用的。", "乔治·博克斯", "统计学家"),
-    ("技术是把双刃剑，但不拥抱它的代价更大。", "李开复", "创新工场创始人"),
-    ("下一个大事件，永远看起来像玩具。", "克里斯·迪克森", "a16z 合伙人"),
-    ("数据是新的石油。", "克莱夫·亨比", "数学家"),
-    ("当你把世界上最聪明的人聚在一起，奇迹就会发生。", "拉里·佩奇", "谷歌联合创始人"),
-    ("简洁是终极的复杂。", "达·芬奇", "文艺复兴巨匠"),
-]
-
 WEEKDAY_MAP = {
-    0: "星 期 一", 1: "星 期 二", 2: "星 期 三",
-    3: "星 期 四", 4: "星 期 五", 5: "星 期 六", 6: "星 期 日",
+    0: "星期一", 1: "星期二", 2: "星期三",
+    3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日",
 }
 
-# 宜忌库
 YI_OPTIONS = [
-    "深度学习 拥抱变化", "大胆尝试 勇于创新", "独立思考 质疑权威",
+    "多学习 多思考", "大胆尝试 勇于创新", "独立思考 质疑权威",
     "专注执行 少刷手机", "跨界探索 打破边界", "复盘总结 持续迭代",
     "阅读论文 拓宽视野", "提出假设 验证想法", "协作共创 开放分享",
 ]
 JI_OPTIONS = [
-    "闭门造车", "盲目跟风", "纸上谈兵",
-    "故步自封", "拖延症发作", "信息茧房",
+    "邯郸学步", "盲目跟风", "纸上谈兵",
+    "故步自封", "拖延症发作", "闭门造车",
     "过度优化", "完美主义", "只收藏不行动",
+]
+
+TECH_QUOTES = [
+    ("模仿并不丢人，模仿是为了超越。", "马化腾（腾讯公司创始人）"),
+    ("预测未来的最好方式，就是去创造它。", "艾伦·凯（计算机科学家）"),
+    ("Stay hungry, stay foolish.", "史蒂夫·乔布斯（苹果创始人）"),
+    ("任何足够先进的技术，都与魔法无异。", "亚瑟·克拉克（科幻作家）"),
+    ("最好的创业方式，是解决你自己遇到的问题。", "保罗·格雷厄姆（YC 创始人）"),
+    ("我们总是高估两年的变化，低估十年的变化。", "比尔·盖茨（微软创始人）"),
+    ("创新区分了领导者和跟随者。", "史蒂夫·乔布斯（苹果创始人）"),
+    ("AI不会取代人类，但会用AI的人会取代不用的人。", "黄仁勋（英伟达CEO）"),
+    ("快速行动，打破常规。", "马克·扎克伯格（Meta CEO）"),
+    ("软件正在吞噬世界。", "马克·安德森（a16z创始人）"),
+    ("真正的风险不是做得太多，而是做得太少。", "萨姆·奥特曼（OpenAI CEO）"),
+    ("未来已来，只是分布不均匀。", "威廉·吉布森（科幻作家）"),
+    ("想象力比知识更重要。", "爱因斯坦（物理学家）"),
+    ("第一步是确立一件事是可能的，然后概率就会发生。", "埃隆·马斯克（特斯拉CEO）"),
+    ("下一个大事件，永远看起来像玩具。", "克里斯·迪克森（a16z合伙人）"),
+    ("简洁是终极的复杂。", "达·芬奇（文艺复兴巨匠）"),
+    ("数据是新的石油。", "克莱夫·亨比（数学家）"),
+    ("伟大的产品不是被设计出来的，是被发现的。", "张一鸣（字节跳动创始人）"),
+    ("技术是把双刃剑，但不拥抱它的代价更大。", "李开复（创新工场创始人）"),
+    ("把每天当作最后一天来过，终有一天你会对的。", "史蒂夫·乔布斯（苹果创始人）"),
 ]
 
 
 def generate_calendar_card():
-    """自动生成每日日历卡片 HTML"""
+    """生成格隆汇风格小型日历卡片"""
     now = datetime.now(BJT)
     year = now.strftime("%Y")
-    month_cn = f"{now.month}月"
-    month_en = now.strftime("%b").capitalize()
+    month_num = now.month
+    month_en = now.strftime("%b").upper()
     day = now.strftime("%d")
     weekday = WEEKDAY_MAP[now.weekday()]
 
-    # 随机选名言、宜忌
-    random.seed(now.strftime("%Y%m%d"))  # 每天固定随机种子，同一天多次运行结果一致
-    quote_text, quote_author, quote_title = random.choice(TECH_QUOTES)
+    random.seed(now.strftime("%Y%m%d"))
+    quote_text, quote_author = random.choice(TECH_QUOTES)
     yi = random.choice(YI_OPTIONS)
     ji = random.choice(JI_OPTIONS)
 
-    card_html = f"""
-<section style="margin-top:36px;width:100%;max-width:420px;margin-left:auto;margin-right:auto;">
-<section style="background:linear-gradient(170deg,#0b1a3b 0%,#14305e 45%,#1a4080 100%);border-radius:16px;overflow:hidden;">
+    return f"""
+<section style="margin:32px auto 0;max-width:360px;">
+<section style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e8e8e8;">
 
-<section style="background:rgba(255,255,255,0.08);padding:14px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);">
-<p style="font-size:16px;font-weight:700;color:#fff;letter-spacing:3px;margin:0;">鹏眼观天下</p>
-<p style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.6);margin:0;font-family:sans-serif;">{month_cn} {month_en}</p>
+<section style="background:#c0392b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
+<p style="font-size:14px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
+<p style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
 </section>
 
-<section style="padding:32px 28px 20px;text-align:center;">
-<p style="font-size:18px;color:rgba(255,255,255,0.45);letter-spacing:6px;margin:0;font-family:sans-serif;">{year}</p>
-<p style="font-size:120px;font-weight:900;color:#fff;line-height:1;margin:0;font-family:sans-serif;">{day}</p>
-<p style="font-size:20px;color:rgba(255,255,255,0.55);letter-spacing:10px;margin:4px 0 20px;">{weekday}</p>
-
-<section style="display:flex;justify-content:center;gap:36px;margin-bottom:24px;">
-<p style="font-size:15px;color:rgba(255,255,255,0.7);margin:0;"><span style="font-size:13px;padding:3px 10px;border-radius:5px;font-weight:700;background:rgba(100,180,255,0.2);color:#7ab8ff;">宜</span> {yi}</p>
-<p style="font-size:15px;color:rgba(255,255,255,0.7);margin:0;"><span style="font-size:13px;padding:3px 10px;border-radius:5px;font-weight:700;background:rgba(255,100,100,0.15);color:#ff8a8a;">忌</span> {ji}</p>
+<section style="padding:20px 20px 14px;text-align:center;background:#fff;">
+<p style="font-size:13px;color:#999;letter-spacing:4px;margin:0;">{year}</p>
+<p style="font-size:80px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0;font-family:Georgia,serif;">{day}</p>
+<p style="font-size:15px;color:#666;letter-spacing:4px;margin:0 0 12px;">{weekday}</p>
+<section style="display:flex;justify-content:center;gap:24px;margin-bottom:4px;">
+<p style="font-size:13px;color:#666;margin:0;"><span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:700;background:#fef0f0;color:#c0392b;">宜</span> {yi}</p>
+<p style="font-size:13px;color:#666;margin:0;"><span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:700;background:#f0f0f0;color:#999;">忌</span> {ji}</p>
 </section>
 </section>
 
-<section style="background:rgba(255,255,255,0.05);padding:24px 28px;border-top:1px solid rgba(255,255,255,0.06);">
-<p style="font-size:18px;color:rgba(255,255,255,0.9);line-height:1.8;text-align:center;margin:0 0 12px;">"{quote_text}"</p>
-<p style="font-size:14px;color:rgba(255,255,255,0.4);text-align:center;margin:0;">—— {quote_author}（{quote_title}）</p>
+<section style="border-top:1px solid #f0f0f0;padding:14px 20px;background:#fafafa;">
+<p style="font-size:14px;color:#333;line-height:1.7;text-align:center;margin:0 0 6px;">"{quote_text}"</p>
+<p style="font-size:12px;color:#999;text-align:center;margin:0;">—— {quote_author}</p>
 </section>
 
-<section style="padding:14px 28px;display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.2);">
-<p style="margin:0;">鹏眼观天下 · 每日科技简报</p>
+<section style="padding:8px 20px;display:flex;justify-content:space-between;font-size:11px;color:#ccc;">
+<p style="margin:0;">鹏眼观天下</p>
 <p style="margin:0;">全球视野 / 科技洞察</p>
 </section>
 
 </section>
 </section>
 """
-    return card_html
 
 
 DISCLAIMER = """
@@ -131,7 +116,6 @@ def get_time_range():
 
 
 def fetch_google_news():
-    """Google News RSS：主流科技媒体报道"""
     queries = [
         "AI+artificial+intelligence+OpenAI+Anthropic+when:1d",
         "Apple+OR+Google+OR+Nvidia+OR+Tesla+OR+Microsoft+OR+Meta+tech+when:1d",
@@ -162,7 +146,6 @@ def fetch_google_news():
 
 
 def fetch_newsapi():
-    """NewsAPI：补充主流科技新闻"""
     start_time, end_time = get_time_range()
     from_date = start_time.strftime("%Y-%m-%dT%H:%M:%S")
     to_date = end_time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -199,7 +182,6 @@ def fetch_newsapi():
 
 
 def fetch_hackernews():
-    """Hacker News：技术社区热门话题"""
     try:
         resp = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15)
         story_ids = resp.json()[:20]
@@ -233,7 +215,6 @@ def fetch_hackernews():
 
 
 def fetch_techcrunch_rss():
-    """TechCrunch RSS：行业深度报道"""
     url = "https://techcrunch.com/feed/"
     try:
         resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
@@ -275,57 +256,70 @@ def summarize(news_text):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
 
-    prompt = f"""你是"鹏眼观天下"公众号的首席科技编辑。把下面的英文科技新闻改写成一篇有洞察力、有连续性的中文硅谷科技深度简报。
+    prompt = f"""你是"鹏眼观天下"公众号的首席科技编辑，也是一位有10年经验的科技记者。你的文字温暖、有人情味、像朋友聊天一样自然，绝不生硬和机械。
 
 📅 本期时间窗口：{date_range}
 
-## 信源说明
-新闻来自4个渠道，标注了[Google News][NewsAPI][Hacker News][TechCrunch]，请综合利用：
-- Google News / NewsAPI：主流媒体报道，关注大事件
-- Hacker News：技术社区热点，关注前沿技术和开发者关注的话题
-- TechCrunch：行业深度，关注融资、创业、产品发布
+## 写作风格（最重要！）
 
-## 风格定位
-- 参照"36氪""极客公园""品玩"的科技报道风格
-- 语言专业但不枯燥，有观点有态度
-- 关注商业逻辑和行业影响，不只是罗列产品参数
-- Hacker News 的热门话题如果有趣，可以单独作为一条写
+你要像一个懂行的朋友在跟读者聊天，而不是一个AI在生成报告。具体要求：
 
-## 核心要求
+1. **说人话**：不要用"赋能""生态""闭环""底层逻辑"等AI味浓重的词。用大白话讲清楚一件事。
+   - ❌ "该产品旨在赋能企业数字化转型"
+   - ✅ "说白了，就是帮公司省钱提效"
+   
+2. **有温度**：适当加入你的观察、类比、甚至小幽默
+   - ❌ "此举具有重要战略意义"
+   - ✅ "这步棋下得够狠，摆明了是冲着对手的腹地去的"
 
-### 1. 内容组织
-- 开头先用1-2句话概括"过去24小时硅谷最值得关注的事"
-- 按重要性排列，最重磅的新闻放在最前面
-- 同一事件的多条新闻合并为一条
-- 只保留真正有价值的新闻（5-7条），不要凑数
-- 如果 Hacker News 有高热度的有趣话题，可以作为"社区热议"单独写一条
+3. **有节奏**：长短句交替，偶尔用短句做节奏感
+   - "OpenAI出手了。不是小打小闹，而是直接动了Anthropic的蛋糕。"
 
-### 2. 分类标签（在标题前用emoji标注）
-- 🤖 AI与大模型
-- 📱 消费科技
-- 🚗 智能出行
-- 💰 融资与并购
-- 🏢 大厂动态
-- 🔬 前沿技术
-- 📊 财报与市场
-- 🔥 社区热议（来自Hacker News的热门话题）
+4. **接地气的类比**：把复杂技术概念用日常生活比喻解释
+   - "模型蒸馏，简单说就是——你花了十个亿研发的配方，被人用一杯奶茶的成本抄走了"
 
-### 3. 每条新闻格式（微信公众号兼容HTML）
+## 信息审核要求（同样重要！）
 
+1. **交叉验证**：如果一条新闻只出现在一个信源、没有其他信源佐证，在写的时候要用"据报道""有消息称"等不确定语气，不要当作确定事实
+2. **数据谨慎**：涉及具体金额、百分比、排名等数据，如果不同信源数据不一致，取最保守的值或标注"约"
+3. **不要脑补**：新闻原文没说的事不要推测，"鹏眼点评"可以有观点，但要基于已知事实推理，不要凭空编造因果关系
+4. **时效标注**：如果某条新闻的时间点不明确，不要生硬编造具体时间
+
+## 内容组织
+
+### 1. 标题
+- 简报需要一个吸引人的总标题，要和当天最重磅的新闻主题一致
+- 总标题放在最开头，格式：
+<p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
+
+### 2. 开头引言
+- 1-2句话概括今天的核心看点，像开场白一样
+<section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言内容</p>
+</section>
+
+### 3. 正文新闻（5-7条，按重要性排列）
+- 同一事件合并
+- 每条新闻只保留一个最核心的来源
+
+每条格式：
 <section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">【emoji分类 标题，有洞察力和冲击力】</p>
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">据XX消息，xxxxxxx（直接写内容，1-3句话。只标注一个核心来源）</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">【emoji分类 标题】</p>
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">据XX消息，xxxxxxx</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">💡 鹏眼点评：这件事为什么重要？对行业意味着什么？对普通用户/开发者/投资者有什么影响？</p>
+<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">💡 鹏眼点评：xxxxx</p>
 </section>
 </section>
 <p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
 
-### 4. 来源翻译
-TechCrunch→TechCrunch，The Verge→The Verge，Bloomberg→彭博社，Reuters→路透社，CNBC→CNBC，WSJ→华尔街日报，The Information→The Information，Wired→连线杂志，Hacker News→Hacker News
+### 4. 分类emoji
+🤖 AI与大模型 | 📱 消费科技 | 🚗 智能出行 | 💰 融资与并购
+🏢 大厂动态 | 🔬 前沿技术 | 📊 财报与市场 | 🔥 社区热议
 
-### 5. 结尾板块
+### 5. 来源翻译
+TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News, The Verge→The Verge
 
+### 6. 结尾板块
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">📌 今日科技圈要点</p>
 <p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">① <b>最值得关注的趋势</b>：xxxx</p>
@@ -333,22 +327,16 @@ TechCrunch→TechCrunch，The Verge→The Verge，Bloomberg→彭博社，Reuter
 <p style="font-size:14px;color:#555;line-height:1.9;margin:0;">③ <b>明天看什么</b>：xxxx</p>
 </section>
 
-### 6. 严格禁止
+### 7. 严格禁止
 - 不要用```代码块
-- 不要用markdown的**加粗**语法，如需加粗用<b>标签
-- 不要用<h1><h2><h3>标签，全部用<p>加内联style
-- 不要用<div>标签，全部用<section>
-- 不要加"每日简报"之类的大标题
+- 不要用markdown的**加粗**，用<b>标签
+- 不要用<h1><h2><h3>，全部用<p>加内联style
+- 不要用<div>，全部用<section>
+- 不要加免责声明和日历卡片（代码自动追加）
 - 不要在底部单独列来源行
-- 不要加免责声明（代码会自动追加）
-- 不要加日历卡片（代码会自动追加）
+- 不要用"赋能""生态闭环""底层逻辑""范式转移"等AI套话
 
-### 7. 开头引言格式
-<section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">过去24小时硅谷科技圈核心看点概括，1-2句话</p>
-</section>
-
-新闻原文（来自4个信源，注意去重合并、按重要性排列）：
+新闻原文（来自4个信源，注意去重合并、按重要性排列、交叉验证）：
 {news_text}"""
 
     resp = requests.post(
@@ -415,7 +403,6 @@ if __name__ == "__main__":
         print(f"共获取 {len(all_articles)} 条新闻")
         print("生成科技深度简报...")
         summary = summarize(news_text)
-        # 自动追加免责声明 + 日历卡片
         calendar = generate_calendar_card()
         summary = summary + DISCLAIMER + calendar
         print("推送微信...")

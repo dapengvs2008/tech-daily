@@ -1,4 +1,4 @@
-import os, json, re, requests, random
+import os, json, re, requests, random, base64
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -213,33 +213,67 @@ def fetch_techcrunch_rss():
         return []
 
 
+def generate_cover_image(title_text):
+    prompt = f"""科技感插画，扁平设计风格，蓝色和白色为主色调，简洁现代。
+主题：{title_text}
+要求：无文字、无人物面部、适合作为公众号封面的横版构图（16:9比例），
+画面元素可以包含：芯片、电路板、机器人、数据流、地球、火箭、代码等科技元素，
+整体风格干净、专业、有未来感。"""
+
+    try:
+        resp = requests.post(
+            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": "doubao-seedream-4-0-250828",
+                "prompt": prompt,
+                "size": "1024x576",
+                "n": 1,
+            },
+            timeout=60,
+        )
+        data = resp.json()
+        if "data" in data and len(data["data"]) > 0:
+            image_url = data["data"][0].get("url", "")
+            if image_url:
+                print(f"封面图生成成功: {image_url[:80]}...")
+                return image_url
+            b64 = data["data"][0].get("b64_json", "")
+            if b64:
+                print("封面图生成成功 (base64)")
+                return f"data:image/png;base64,{b64}"
+        print(f"封面图生成失败: {data}")
+        return None
+    except Exception as e:
+        print(f"封面图请求失败: {e}")
+        return None
+
+
 def deepseek_draft(news_text):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
 
     prompt = f"""你是一位资深科技记者。请根据以下新闻素材，整理出一份科技日报初稿。
 
-📅 时间窗口：{date_range}
+时间窗口：{date_range}
 
 要求：
 1. 从所有新闻中筛选出最有价值的5-7条
 2. 同一事件合并，多信源交叉验证
 3. 按重要性排列
-4. 每条包含：分类emoji + 标题、核心事实（1-3句）、分析点评（1-2句）
-5. 如果某条新闻只有单一信源，标注"（单一信源，待验证）"
-6. 涉及具体数据（金额、百分比等），如果不同信源不一致，取保守值并标注"约"
-7. 开头写一个总标题，概括今天最重磅的事
-8. 开头写1-2句引言概括今天核心看点
-9. 结尾写"今日科技圈要点"：最值得关注的趋势、资本信号、明天看什么
-
-分类emoji：
-🤖AI与大模型 📱消费科技 🚗智能出行 💰融资与并购 🏢大厂动态 🔬前沿技术 📊财报与市场 🔥社区热议
+4. 每条包含：标题、核心事实（1-3句）、分析点评（1-2句）
+5. 不要使用任何emoji图标
+6. 如果某条新闻只有单一信源，标注"（单一信源，待验证）"
+7. 涉及具体数据，不同信源不一致时取保守值并标注"约"
+8. 开头写一个总标题（吸引人但不夸张，不要用"炸锅""震惊""疯了"这类词）
+9. 开头写1-2句引言概括今天核心看点
+10. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
-用纯文本输出，不要HTML标签。每条新闻格式：
+用纯文本输出，不要HTML标签，不要emoji。每条新闻格式：
 ---
-分类emoji 标题
+标题
 据XX消息，xxxxx
 点评：xxxxx
 ---
@@ -285,57 +319,70 @@ def doubao_polish(draft):
 
 ### 多用生活化类比
   好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
-  好的示例："Meta砸210亿买算力，相当于一口气买了一整栋写字楼的超级电脑。"
   不好的示例："Meta与CoreWeave签署算力基础设施合同"——太干了
 
 ### 告诉读者"这和你有什么关系"
   每条点评最后加一句和普通人相关的话：
   好的示例："对咱们普通用户来说，AI工具打价格战是好事，以后用ChatGPT可能更便宜。"
-  好的示例："虽然听着离我们很远，但这种安全问题一旦出事，你的网银、社交账号都可能受影响。"
+
+### 开头钩子（非常重要！）
+  引言部分要用悬念、反差或好奇心来钩住读者，让人忍不住往下看：
+  好的示例："你敢信吗？做ChatGPT的公司，今天居然公开说'我怕对手'。与此同时，另一家公司刚刚砸下210亿美元，只为了买电脑。今天的硅谷，每条消息都在告诉你：AI的游戏规则，正在被改写。"
+  不好的示例："今天科技圈发生了几件大事。"——太平淡了
+
+### 标题要求
+  - 吸引人但不浮夸，不要用"炸锅""震惊""疯了""核弹级"这类词
+  - 用具体信息引发好奇心
+  好的示例："ChatGPT的对手来了，而且它主动'认怂'了"
+  好的示例："210亿美元只为买电脑？AI军备竞赛的账单，比你想的大得多"
+  不好的示例："炸锅！AI圈今天全是大新闻！"
 
 ### 语气要求
 - 像一个懂行的朋友在饭桌上给你讲今天看到的新鲜事
 - 可以用"说白了""换句话说""你可以理解为"这类过渡
-- 偶尔带点幽默："OpenAI这次也不装了，直接在文件里写'我怕对手抢生意'。"
+- 偶尔带点幽默但不油腻
 - 不要用"赋能""生态""闭环""底层逻辑""范式转移"
+- 不要使用任何emoji图标
 
 ## 第三：公众号排版
-直接输出微信公众号兼容的HTML，所有样式内联。
+直接输出微信公众号兼容的HTML，所有样式内联。不要使用任何emoji。
 
-总标题（要让不懂科技的人也想点进来）：
+总标题：
 <p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
 
-引言（一两句话勾起好奇心）：
+引言（钩子，制造好奇心）：
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言内容</p>
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言内容——要让人忍不住往下看</p>
 </section>
 
 每条新闻：
 <section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">【emoji 标题——用大白话，让人一看就懂】</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——用大白话，不要emoji</p>
 <p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词要加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">💡 鹏眼点评：分析+和普通人的关系</p>
+<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
 </section>
 </section>
 <p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
 
 结尾要点：
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">📌 今天的科技圈，三句话说清楚</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">① <b>最重要的一件事</b>：xxxx（用大白话）</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">② <b>钱往哪儿流</b>：xxxx</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0;">③ <b>接下来看什么</b>：xxxx</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">今天的科技圈，三句话说清楚</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx（用大白话）</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">2. 钱往哪儿流：xxxx</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
 </section>
 
 ## 严格禁止
-- 不要用```代码块
-- 不要用markdown的**加粗**，用<b>标签
-- 不要用<h1><h2><h3>，用<p>加内联style
-- 不要用<div>，用<section>
+- 不要用代码块
+- 不要用markdown的加粗语法，用<b>标签
+- 不要用h1 h2 h3标签，用p加内联style
+- 不要用div标签，用section
+- 不要使用任何emoji图标
 - 不要加免责声明和日历卡片（代码自动追加）
 - 不要在底部单独列来源
 - 专业名词不能不加解释直接出现
+- 标题不要用"炸锅""震惊""疯了"等浮夸词汇
 
 初稿内容：
 {draft}"""
@@ -370,6 +417,14 @@ def clean_response(text):
     return text.strip()
 
 
+def extract_title(html_text):
+    match = re.search(r'font-size:22px[^>]*>(.*?)</p>', html_text)
+    if match:
+        title = re.sub(r'<[^>]+>', '', match.group(1))
+        return title.strip()
+    return "科技行业每日速递"
+
+
 def send_pushplus(title, content):
     resp = requests.post(
         "http://www.pushplus.plus/send",
@@ -391,7 +446,7 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    print("=== 1/5 抓取新闻 ===")
+    print("=== 1/6 抓取新闻 ===")
     print("  Google News...")
     google_articles = fetch_google_news()
     print("  NewsAPI...")
@@ -410,11 +465,11 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        print("=== 2/5 DeepSeek 生成初稿 ===")
+        print("=== 2/6 DeepSeek 生成初稿 ===")
         draft = deepseek_draft(news_text)
 
         if draft:
-            print("=== 3/5 豆包润色+校验+排版 ===")
+            print("=== 3/6 豆包润色+校验+排版 ===")
             polished = doubao_polish(draft)
 
             if polished:
@@ -425,11 +480,22 @@ if __name__ == "__main__":
         else:
             final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
 
-        print("=== 4/5 生成日历卡片 ===")
+        print("=== 4/6 生成封面图 ===")
+        article_title = extract_title(final)
+        print(f"  封面主题: {article_title}")
+        cover_url = generate_cover_image(article_title)
+        if cover_url:
+            cover_html = f'<section style="margin-bottom:20px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
+            final = cover_html + final
+            print("  封面图已插入文章开头")
+        else:
+            print("  封面图生成失败，跳过")
+
+        print("=== 5/6 生成日历卡片 ===")
         calendar = generate_calendar_card()
         final = final + DISCLAIMER + calendar
 
-        print("=== 5/5 推送微信 ===")
+        print("=== 6/6 推送微信 ===")
         send_pushplus(title, final)
 
     print("全部完成!")

@@ -393,15 +393,15 @@ def doubao_polish(draft):
 
 引言（钩子）：
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言——让人忍不住往下看</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0;">引言——让人忍不住往下看</p>
 </section>
 
 每条新闻：
 <section style="margin-bottom:8px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——大白话，不要emoji</p>
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
+<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
 </section>
 </section>
 <p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
@@ -409,9 +409,9 @@ def doubao_polish(draft):
 结尾要点：
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">今天的科技圈，三句话说清楚</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">2. 钱往哪儿流：xxxx</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
+<p style="font-size:15px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx</p>
+<p style="font-size:15px;color:#555;line-height:1.9;margin:0 0 10px;">2. 钱往哪儿流：xxxx</p>
+<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
 </section>
 
 ## 严格禁止

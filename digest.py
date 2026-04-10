@@ -60,26 +60,26 @@ def generate_calendar_card():
     ji = random.choice(JI_OPTIONS)
 
     return f"""
-<section style="margin:32px auto 0;max-width:360px;">
+<section style="margin:32px auto 0;max-width:300px;">
 <section style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e8e8e8;">
-<section style="background:#c0392b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">
-<p style="font-size:14px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
-<p style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
+<section style="background:#c0392b;padding:10px 18px;display:flex;justify-content:space-between;align-items:center;">
+<p style="font-size:13px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
+<p style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
 </section>
-<section style="padding:20px 20px 14px;text-align:center;background:#fff;">
-<p style="font-size:13px;color:#999;letter-spacing:4px;margin:0;">{year}</p>
-<p style="font-size:80px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0;font-family:Georgia,serif;">{day}</p>
-<p style="font-size:15px;color:#666;letter-spacing:4px;margin:0 0 12px;">{weekday}</p>
-<section style="display:flex;justify-content:center;gap:24px;margin-bottom:4px;">
-<p style="font-size:13px;color:#666;margin:0;"><span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:700;background:#fef0f0;color:#c0392b;">宜</span> {yi}</p>
-<p style="font-size:13px;color:#666;margin:0;"><span style="font-size:12px;padding:2px 8px;border-radius:4px;font-weight:700;background:#f0f0f0;color:#999;">忌</span> {ji}</p>
+<section style="padding:28px 18px 20px;text-align:center;background:#fff;">
+<p style="font-size:12px;color:#999;letter-spacing:4px;margin:0 0 4px;">{year}</p>
+<p style="font-size:64px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0 8px;font-family:Georgia,serif;">{day}</p>
+<p style="font-size:14px;color:#666;letter-spacing:6px;margin:0 0 16px;">{weekday}</p>
+<section style="display:flex;justify-content:center;gap:20px;margin-bottom:0;">
+<p style="font-size:12px;color:#666;margin:0;"><span style="font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;background:#fef0f0;color:#c0392b;">宜</span> {yi}</p>
+<p style="font-size:12px;color:#666;margin:0;"><span style="font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;background:#f0f0f0;color:#999;">忌</span> {ji}</p>
 </section>
 </section>
-<section style="border-top:1px solid #f0f0f0;padding:14px 20px;background:#fafafa;">
-<p style="font-size:14px;color:#333;line-height:1.7;text-align:center;margin:0 0 6px;">"{quote_text}"</p>
-<p style="font-size:12px;color:#999;text-align:center;margin:0;">—— {quote_author}</p>
+<section style="border-top:1px solid #f0f0f0;padding:18px 18px;background:#fafafa;">
+<p style="font-size:13px;color:#333;line-height:1.8;text-align:center;margin:0 0 8px;">"{quote_text}"</p>
+<p style="font-size:11px;color:#999;text-align:center;margin:0;">—— {quote_author}</p>
 </section>
-<section style="padding:8px 20px;display:flex;justify-content:space-between;font-size:11px;color:#ccc;">
+<section style="padding:8px 18px;display:flex;justify-content:space-between;font-size:10px;color:#ccc;">
 <p style="margin:0;">鹏眼观天下</p>
 <p style="margin:0;">全球视野 / 科技洞察</p>
 </section>

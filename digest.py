@@ -227,7 +227,7 @@ def generate_cover_image(title_text):
             json={
                 "model": "doubao-seedream-4-0-250828",
                 "prompt": prompt,
-                "size": "1024x576",
+                "size": "1536x640",
                 "n": 1,
             },
             timeout=60,

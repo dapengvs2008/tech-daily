@@ -1,4 +1,4 @@
-import os, json, re, requests, random, base64
+import os, json, re, requests, random, base64, subprocess
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -89,13 +89,51 @@ def generate_calendar_card():
 
 
 DISCLAIMER = """
-<section style="margin-top:28px;padding:14px 16px;background:#f9f9f9;border-radius:6px;">
+<section style="margin-top:20px;padding:14px 16px;background:#f9f9f9;border-radius:6px;">
 <p style="font-size:12px;color:#999;line-height:1.8;margin:0;">
 <span style="color:#888;font-weight:bold;">免责声明</span><br/>
 本文内容仅为科技行业资讯整理与个人分析，信息来源包括路透社、彭博社、TechCrunch、The Verge、Hacker News、CNBC等国际主流科技媒体的公开报道。本文不代表任何立场，不构成任何投资建议。如有疏漏，欢迎留言指正。
 </p>
 </section>
 """
+
+
+# ===== 连续性追踪：读取/保存前一天的总结 =====
+
+LAST_SUMMARY_FILE = "last_summary.txt"
+
+def read_last_summary():
+    try:
+        with open(LAST_SUMMARY_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if content:
+                print(f"  读取到昨日总结 ({len(content)} 字)")
+                return content
+    except FileNotFoundError:
+        pass
+    print("  无昨日总结")
+    return ""
+
+def save_summary(summary_text):
+    try:
+        with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
+            f.write(summary_text)
+        # Git commit 保存到仓库
+        subprocess.run(["git", "config", "user.name", "Tech Daily Bot"], check=False)
+        subprocess.run(["git", "config", "user.email", "bot@tech-daily.com"], check=False)
+        subprocess.run(["git", "add", LAST_SUMMARY_FILE], check=False)
+        subprocess.run(["git", "commit", "-m", "auto: update last summary"], check=False)
+        subprocess.run(["git", "push"], check=False)
+        print(f"  昨日总结已保存并推送到仓库")
+    except Exception as e:
+        print(f"  保存总结失败: {e}")
+
+def extract_summary_from_html(html_text):
+    match = re.search(r'三句话说清楚</p>(.*?)</section>', html_text, re.DOTALL)
+    if match:
+        text = re.sub(r'<[^>]+>', '', match.group(1))
+        return text.strip()
+    return ""
 
 
 def get_time_range():
@@ -243,14 +281,25 @@ def generate_cover_image(title_text):
     except Exception as e:
         print(f"封面图请求失败: {e}")
         return None
-def deepseek_draft(news_text):
+
+
+def deepseek_draft(news_text, last_summary=""):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
+
+    continuity = ""
+    if last_summary:
+        continuity = f"""
+【重要】昨天的简报结尾提到了以下内容，如果今天的新闻里有相关进展，请在对应新闻中提一句"昨天我们提到的XXX，今天有了新进展——"，形成连续追踪感：
+---
+{last_summary}
+---
+"""
 
     prompt = f"""你是一位资深科技记者。请根据以下新闻素材，整理出一份科技日报初稿。
 
 时间窗口：{date_range}
-
+{continuity}
 要求：
 1. 从所有新闻中筛选出最有价值的5-7条
 2. 同一事件合并，多信源交叉验证
@@ -262,6 +311,7 @@ def deepseek_draft(news_text):
 8. 开头写一个总标题（吸引人但不夸张，不要用"炸锅""震惊""疯了"这类词）
 9. 开头写1-2句引言概括今天核心看点
 10. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
+11. 如果昨天的"接下来看什么"在今天有了进展，务必在相关新闻中回顾提及
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
@@ -308,32 +358,29 @@ def doubao_polish(draft):
 - 你的读者没听过 Anthropic、RISC-V、CoreWeave 这些名字
 - 每个专业名词/公司名第一次出现时，加一句大白话解释
   好的示例："Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
-  好的示例："RISC-V（一种开源的芯片设计方案，类似安卓在手机系统里的角色）"
   不好的示例：直接写 "Anthropic发布了新模型"——读者不知道这是谁
 
 ### 多用生活化类比
   好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
-  不好的示例："Meta与CoreWeave签署算力基础设施合同"——太干了
 
 ### 告诉读者"这和你有什么关系"
-  每条点评最后加一句和普通人相关的话：
-  好的示例："对咱们普通用户来说，AI工具打价格战是好事，以后用ChatGPT可能更便宜。"
+  每条点评最后加一句和普通人相关的话
+
+### 连续追踪
+  如果初稿中有"昨天我们提到"这类回顾内容，一定保留并自然地融入正文，让读者感受到"这个号一直在跟踪事件进展"
 
 ### 开头钩子（非常重要！）
-  引言部分要用悬念、反差或好奇心来钩住读者，让人忍不住往下看：
-  好的示例："你敢信吗？做ChatGPT的公司，今天居然公开说'我怕对手'。与此同时，另一家公司刚刚砸下210亿美元，只为了买电脑。今天的硅谷，每条消息都在告诉你：AI的游戏规则，正在被改写。"
-  不好的示例："今天科技圈发生了几件大事。"——太平淡了
+  引言部分要用悬念、反差或好奇心来钩住读者
+  好的示例："你敢信吗？做ChatGPT的公司，今天居然公开说'我怕对手'。"
+  不好的示例："今天科技圈发生了几件大事。"
 
 ### 标题要求
-  - 吸引人但不浮夸，不要用"炸锅""震惊""疯了""核弹级"这类词
+  - 吸引人但不浮夸，不要用"炸锅""震惊""疯了""核弹级"
   - 用具体信息引发好奇心
-  好的示例："ChatGPT的对手来了，而且它主动'认怂'了"
-  好的示例："210亿美元只为买电脑？AI军备竞赛的账单，比你想的大得多"
-  不好的示例："炸锅！AI圈今天全是大新闻！"
 
 ### 语气要求
-- 像一个懂行的朋友在饭桌上给你讲今天看到的新鲜事
-- 可以用"说白了""换句话说""你可以理解为"这类过渡
+- 像一个懂行的朋友在饭桌上给你讲新鲜事
+- 可以用"说白了""换句话说""你可以理解为"
 - 偶尔带点幽默但不油腻
 - 不要用"赋能""生态""闭环""底层逻辑""范式转移"
 - 不要使用任何emoji图标
@@ -344,15 +391,15 @@ def doubao_polish(draft):
 总标题：
 <p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
 
-引言（钩子，制造好奇心）：
+引言（钩子）：
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言内容——要让人忍不住往下看</p>
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0;">引言——让人忍不住往下看</p>
 </section>
 
 每条新闻：
 <section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——用大白话，不要emoji</p>
-<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词要加括号解释）</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——大白话，不要emoji</p>
+<p style="font-size:15px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
 <p style="font-size:14px;color:#555;font-style:italic;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
 </section>
@@ -362,21 +409,21 @@ def doubao_polish(draft):
 结尾要点：
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">今天的科技圈，三句话说清楚</p>
-<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx（用大白话）</p>
+<p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx</p>
 <p style="font-size:14px;color:#555;line-height:1.9;margin:0 0 10px;">2. 钱往哪儿流：xxxx</p>
 <p style="font-size:14px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
 </section>
 
 ## 严格禁止
 - 不要用代码块
-- 不要用markdown的加粗语法，用<b>标签
+- 不要用markdown加粗语法，用<b>标签
 - 不要用h1 h2 h3标签，用p加内联style
 - 不要用div标签，用section
 - 不要使用任何emoji图标
 - 不要加免责声明和日历卡片（代码自动追加）
 - 不要在底部单独列来源
 - 专业名词不能不加解释直接出现
-- 标题不要用"炸锅""震惊""疯了"等浮夸词汇
+- 标题不要浮夸词汇
 
 初稿内容：
 {draft}"""
@@ -440,7 +487,12 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    print("=== 1/6 抓取新闻 ===")
+    # 0. 读取昨日总结
+    print("=== 0/7 读取昨日总结 ===")
+    last_summary = read_last_summary()
+
+    # 1. 抓取新闻
+    print("=== 1/7 抓取新闻 ===")
     print("  Google News...")
     google_articles = fetch_google_news()
     print("  NewsAPI...")
@@ -459,11 +511,13 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        print("=== 2/6 DeepSeek 生成初稿 ===")
-        draft = deepseek_draft(news_text)
+        # 2. DeepSeek 初稿（带昨日总结）
+        print("=== 2/7 DeepSeek 生成初稿 ===")
+        draft = deepseek_draft(news_text, last_summary)
 
         if draft:
-            print("=== 3/6 豆包润色+校验+排版 ===")
+            # 3. 豆包润色
+            print("=== 3/7 豆包润色+校验+排版 ===")
             polished = doubao_polish(draft)
 
             if polished:
@@ -474,7 +528,8 @@ if __name__ == "__main__":
         else:
             final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
 
-        print("=== 4/6 生成封面图 ===")
+        # 4. 生成封面图
+        print("=== 4/7 生成封面图 ===")
         article_title = extract_title(final)
         print(f"  封面主题: {article_title}")
         cover_url = generate_cover_image(article_title)
@@ -485,11 +540,23 @@ if __name__ == "__main__":
         else:
             print("  封面图生成失败，跳过")
 
-        print("=== 5/6 生成日历卡片 ===")
+        # 5. 日历卡片
+        print("=== 5/7 生成日历卡片 ===")
         calendar = generate_calendar_card()
-        final = final + DISCLAIMER + calendar
 
-        print("=== 6/6 推送微信 ===")
+        # 6. 拼接：正文 + 日历卡片 + 免责声明（免责在最后）
+        final = final + calendar + DISCLAIMER
+
+        # 7. 推送
+        print("=== 6/7 推送微信 ===")
         send_pushplus(title, final)
+
+        # 8. 保存今日总结供明天使用
+        print("=== 7/7 保存今日总结 ===")
+        today_summary = extract_summary_from_html(final)
+        if today_summary:
+            save_summary(today_summary)
+        else:
+            print("  未提取到总结内容，跳过保存")
 
     print("全部完成!")

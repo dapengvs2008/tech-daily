@@ -334,7 +334,7 @@ def doubao_polish(draft):
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
             headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
             json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
-            timeout=90,
+            timeout=180,
         )
         data = resp.json()
         if "choices" not in data:

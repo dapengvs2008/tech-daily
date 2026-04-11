@@ -1,4 +1,4 @@
-import os, json, re, requests, random, base64, subprocess
+import os, json, re, requests, random, subprocess
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
@@ -23,31 +23,9 @@ JI_OPTIONS = [
     "故步自封", "拖延症发作", "闭门造车",
     "过度优化", "完美主义", "只收藏不行动",
 ]
-TECH_QUOTES = [
-    ("模仿并不丢人，模仿是为了超越。", "马化腾（腾讯创始人）"),
-    ("预测未来的最好方式，就是去创造它。", "艾伦·凯（计算机科学家）"),
-    ("Stay hungry, stay foolish.", "史蒂夫·乔布斯（苹果创始人）"),
-    ("任何足够先进的技术，都与魔法无异。", "亚瑟·克拉克（科幻作家）"),
-    ("最好的创业方式，是解决你自己遇到的问题。", "保罗·格雷厄姆（YC创始人）"),
-    ("我们总是高估两年的变化，低估十年的变化。", "比尔·盖茨（微软创始人）"),
-    ("创新区分了领导者和跟随者。", "史蒂夫·乔布斯（苹果创始人）"),
-    ("AI不会取代人类，但会用AI的人会取代不用的人。", "黄仁勋（英伟达CEO）"),
-    ("快速行动，打破常规。", "马克·扎克伯格（Meta CEO）"),
-    ("软件正在吞噬世界。", "马克·安德森（a16z创始人）"),
-    ("真正的风险不是做得太多，而是做得太少。", "萨姆·奥特曼（OpenAI CEO）"),
-    ("未来已来，只是分布不均匀。", "威廉·吉布森（科幻作家）"),
-    ("想象力比知识更重要。", "爱因斯坦（物理学家）"),
-    ("第一步是确立一件事是可能的，然后概率就会发生。", "埃隆·马斯克（特斯拉CEO）"),
-    ("下一个大事件，永远看起来像玩具。", "克里斯·迪克森（a16z合伙人）"),
-    ("简洁是终极的复杂。", "达·芬奇（文艺复兴巨匠）"),
-    ("伟大的产品不是被设计出来的，是被发现的。", "张一鸣（字节跳动创始人）"),
-    ("技术是把双刃剑，但不拥抱它的代价更大。", "李开复（创新工场创始人）"),
-    ("把每天当作最后一天来过，终有一天你会对的。", "史蒂夫·乔布斯（苹果创始人）"),
-    ("数据是新的石油。", "克莱夫·亨比（数学家）"),
-]
 
 
-def generate_calendar_card():
+def generate_calendar_card(quote_text="", quote_author=""):
     now = datetime.now(BJT)
     year = now.strftime("%Y")
     month_num = now.month
@@ -55,9 +33,11 @@ def generate_calendar_card():
     day = now.strftime("%d")
     weekday = WEEKDAY_MAP[now.weekday()]
     random.seed(now.strftime("%Y%m%d"))
-    quote_text, quote_author = random.choice(TECH_QUOTES)
     yi = random.choice(YI_OPTIONS)
     ji = random.choice(JI_OPTIONS)
+    if not quote_text:
+        quote_text = "预测未来的最好方式，就是去创造它。"
+        quote_author = "艾伦·凯（计算机科学家）"
 
     return f"""
 <section style="margin:32px auto 0;max-width:300px;">
@@ -92,13 +72,11 @@ DISCLAIMER = """
 <section style="margin-top:20px;padding:14px 16px;background:#f9f9f9;border-radius:6px;">
 <p style="font-size:12px;color:#999;line-height:1.8;margin:0;">
 <span style="color:#888;font-weight:bold;">免责声明</span><br/>
-本文内容仅为科技行业资讯整理与个人分析，信息来源包括路透社、彭博社、TechCrunch、The Verge、Hacker News、CNBC等国际主流科技媒体的公开报道。本文不代表任何立场，不构成任何投资建议。如有疏漏，欢迎留言指正。
+本文素材来源于路透社、彭博社、TechCrunch、The Verge、Hacker News、CNBC等国际主流科技媒体及网络公开报道，经AI辅助整理并由人工编辑审核。本文不代表任何立场，不构成任何投资建议。如有疏漏，欢迎留言指正。
 </p>
 </section>
 """
 
-
-# ===== 连续性追踪：读取/保存前一天的总结 =====
 
 LAST_SUMMARY_FILE = "last_summary.txt"
 
@@ -118,13 +96,12 @@ def save_summary(summary_text):
     try:
         with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
             f.write(summary_text)
-        # Git commit 保存到仓库
         subprocess.run(["git", "config", "user.name", "Tech Daily Bot"], check=False)
         subprocess.run(["git", "config", "user.email", "bot@tech-daily.com"], check=False)
         subprocess.run(["git", "add", LAST_SUMMARY_FILE], check=False)
         subprocess.run(["git", "commit", "-m", "auto: update last summary"], check=False)
         subprocess.run(["git", "push"], check=False)
-        print(f"  昨日总结已保存并推送到仓库")
+        print(f"  今日总结已保存并推送到仓库")
     except Exception as e:
         print(f"  保存总结失败: {e}")
 
@@ -261,7 +238,7 @@ def generate_cover_image(title_text):
             json={
                 "model": "doubao-seedream-4-0-250828",
                 "prompt": prompt,
-                "size": "1296x720",
+                "size": "1024x1024",
                 "n": 1,
             },
             timeout=60,
@@ -306,19 +283,21 @@ def deepseek_draft(news_text, last_summary=""):
 3. 按重要性排列
 4. 每条包含：标题、核心事实（1-3句）、分析点评（1-2句）
 5. 不要使用任何emoji图标
-6. 如果某条新闻只有单一信源，标注"（单一信源，待验证）"
-7. 涉及具体数据，不同信源不一致时取保守值并标注"约"
-8. 开头写一个总标题（吸引人但不夸张，不要用"炸锅""震惊""疯了"这类词）
-9. 开头写1-2句引言概括今天核心看点
-10. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
-11. 如果昨天的"接下来看什么"在今天有了进展，务必在相关新闻中回顾提及
+6. 正文中不要写"据XX报道""据XX消息"等来源标注，直接陈述事实
+7. 如果某条新闻只有单一信源，用"有消息称""据报道"等模糊措辞
+8. 涉及具体数据，不同信源不一致时取保守值并标注"约"
+9. 开头写一个总标题（吸引人但不夸张，不要用"炸锅""震惊""疯了"这类词）
+10. 开头写1-2句引言概括今天核心看点
+11. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
+12. 如果昨天的"接下来看什么"在今天有了进展，务必在相关新闻中回顾提及
+13. 最后单独一行输出一句和今天内容主题最相关的名人名言，格式为：今日名言：内容——作者（身份）
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
 用纯文本输出，不要HTML标签，不要emoji。每条新闻格式：
 ---
 标题
-据XX消息，xxxxx
+xxxxx（直接陈述事实，不要"据XX报道"开头）
 点评：xxxxx
 ---
 
@@ -335,13 +314,25 @@ def deepseek_draft(news_text, last_summary=""):
         data = resp.json()
         if "choices" not in data:
             print(f"DeepSeek 错误: {data}")
-            return None
+            return None, "", ""
         draft = data["choices"][0]["message"]["content"]
         print(f"DeepSeek 初稿生成完成 ({len(draft)} 字)")
-        return draft
+
+        # 提取名言
+        quote_text = ""
+        quote_author = ""
+        quote_match = re.search(r'今日名言[：:]\s*(.+?)——(.+)', draft)
+        if quote_match:
+            quote_text = quote_match.group(1).strip().strip('"').strip('"').strip('"')
+            quote_author = quote_match.group(2).strip()
+            print(f"  今日名言: {quote_text} —— {quote_author}")
+            # 从初稿中移除名言行，避免豆包重复输出
+            draft = re.sub(r'今日名言[：:].*', '', draft).strip()
+
+        return draft, quote_text, quote_author
     except Exception as e:
         print(f"DeepSeek 请求失败: {e}")
-        return None
+        return None, "", ""
 
 
 def doubao_polish(draft):
@@ -349,28 +340,29 @@ def doubao_polish(draft):
 
 ## 第一：事实校验
 - 检查初稿中是否有逻辑矛盾或不合理信息
-- 标注了"单一信源，待验证"的内容，用谨慎措辞（"据报道""有消息称"）
 - 发现明显错误直接修正或删除
 
 ## 第二：面向科技小白的改写（最重要！）
 
 ### 核心原则：像给朋友科普一样写
-- 你的读者没听过 Anthropic、RISC-V、CoreWeave 这些名字
 - 每个专业名词/公司名第一次出现时，加一句大白话解释
   好的示例："Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
-  不好的示例：直接写 "Anthropic发布了新模型"——读者不知道这是谁
+  不好的示例：直接写 "Anthropic发布了新模型"
 
 ### 多用生活化类比
-  好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道——大概就是这个意思。"
+  好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道。"
 
 ### 告诉读者"这和你有什么关系"
   每条点评最后加一句和普通人相关的话
 
+### 正文不标注来源
+  不要写"据XX报道""据XX消息"，直接陈述事实。来源在文末免责声明统一注明。
+
 ### 连续追踪
-  如果初稿中有"昨天我们提到"这类回顾内容，一定保留并自然地融入正文，让读者感受到"这个号一直在跟踪事件进展"
+  如果初稿中有"昨天我们提到"这类回顾内容，一定保留并自然融入
 
 ### 开头钩子（非常重要！）
-  引言部分要用悬念、反差或好奇心来钩住读者
+  引言要用悬念、反差或好奇心钩住读者
   好的示例："你敢信吗？做ChatGPT的公司，今天居然公开说'我怕对手'。"
   不好的示例："今天科技圈发生了几件大事。"
 
@@ -379,7 +371,7 @@ def doubao_polish(draft):
   - 用具体信息引发好奇心
 
 ### 语气要求
-- 像一个懂行的朋友在饭桌上给你讲新鲜事
+- 像一个懂行的朋友在饭桌上讲新鲜事
 - 可以用"说白了""换句话说""你可以理解为"
 - 偶尔带点幽默但不油腻
 - 不要用"赋能""生态""闭环""底层逻辑""范式转移"
@@ -399,7 +391,7 @@ def doubao_polish(draft):
 每条新闻：
 <section style="margin-bottom:8px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——大白话，不要emoji</p>
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（不要写来源，专业名词加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
 <p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
 </section>
@@ -421,9 +413,10 @@ def doubao_polish(draft):
 - 不要用div标签，用section
 - 不要使用任何emoji图标
 - 不要加免责声明和日历卡片（代码自动追加）
-- 不要在底部单独列来源
+- 不要在正文中标注新闻来源
 - 专业名词不能不加解释直接出现
 - 标题不要浮夸词汇
+- 点评不要用斜体
 
 初稿内容：
 {draft}"""
@@ -511,9 +504,9 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        # 2. DeepSeek 初稿（带昨日总结）
+        # 2. DeepSeek 初稿 + 提取名言
         print("=== 2/7 DeepSeek 生成初稿 ===")
-        draft = deepseek_draft(news_text, last_summary)
+        draft, quote_text, quote_author = deepseek_draft(news_text, last_summary)
 
         if draft:
             # 3. 豆包润色
@@ -527,6 +520,8 @@ if __name__ == "__main__":
                 final = f"<p style='color:#999;font-size:12px;'>（本期为初稿版本，润色服务暂时不可用）</p>\n{draft}"
         else:
             final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
+            quote_text = ""
+            quote_author = ""
 
         # 4. 生成封面图
         print("=== 4/7 生成封面图 ===")
@@ -534,24 +529,26 @@ if __name__ == "__main__":
         print(f"  封面主题: {article_title}")
         cover_url = generate_cover_image(article_title)
         if cover_url:
-            cover_html = f'<section style="margin-bottom:20px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
+            cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final
             print("  封面图已插入文章开头")
         else:
             print("  封面图生成失败，跳过")
 
-        # 5. 日历卡片
+        # 5. 日历卡片（使用AI生成的名言）
         print("=== 5/7 生成日历卡片 ===")
-        calendar = generate_calendar_card()
+        if quote_text:
+            print(f"  使用AI名言: {quote_text}")
+        calendar = generate_calendar_card(quote_text, quote_author)
 
-        # 6. 拼接：正文 + 日历卡片 + 免责声明（免责在最后）
+        # 6. 拼接：正文 + 日历卡片 + 免责声明
         final = final + calendar + DISCLAIMER
 
         # 7. 推送
         print("=== 6/7 推送微信 ===")
         send_pushplus(title, final)
 
-        # 8. 保存今日总结供明天使用
+        # 8. 保存今日总结
         print("=== 7/7 保存今日总结 ===")
         today_summary = extract_summary_from_html(final)
         if today_summary:

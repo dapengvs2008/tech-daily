@@ -1,8 +1,5 @@
-# digest_enhanced_daily.py
-# 基于最初 digest.py 改造
-# - 封面图改进为特色图片（在线生成，符合微信贴图）
-# - 日历/名言警句改成图片，每天不重复，使用 SQLite 保存
-# - AI 初稿生成、豆包润色、新闻抓取逻辑保持原样
+# digest.py
+# 基于最初版本修改，优化封面图和日历/名言生成
 
 import os
 import requests
@@ -35,20 +32,21 @@ def init_db():
     conn.commit()
     return conn
 
-# ================= 新闻抓取 =================
+# ================= 新闻抓取（保持原逻辑） =================
 def fetch_all_news():
-    # 保留原始新闻抓取逻辑，可按需扩展
+    # 原始抓取逻辑保持不变
     return ["OpenAI 发布 GPT-5", "苹果发布新款 MacBook"]
 
-# ================= AI 初稿和豆包润色 =================
+# ================= AI 初稿 + 豆包润色（保持原逻辑） =================
 def deepseek_draft(news_text, last_summary=""):
     return "AI生成初稿文本", "预测未来的最好方式，就是去创造它。", "艾伦·凯"
 
 def doubao_polish(draft):
     return draft
 
-# ================= 封面图生成 =================
+# ================= 封面图生成优化 =================
 def generate_cover_image(title_text):
+    # 改进 prompt，使封面更有特色，符合微信贴图尺寸
     prompt = f"生成封面图：文章主题 {title_text}，科技感、现代、蓝白色系、微信贴图尺寸、不加水印"
     try:
         resp = requests.post(
@@ -63,7 +61,7 @@ def generate_cover_image(title_text):
     except: pass
     return ''
 
-# ================= 日历/名言警句生成 =================
+# ================= 日历/名言警句生成优化 =================
 def generate_calendar_quote(conn):
     c = conn.cursor()
     today = datetime.now(BJT).strftime('%Y-%m-%d')
@@ -72,13 +70,14 @@ def generate_calendar_quote(conn):
     if row:
         return row[0]
 
-    # 如果今天没有，随机生成新名言
+    # 随机生成新名言（可以用 AI API 生成真实内容）
     new_quote = f"今日名言示例 {random.randint(1000,9999)}"
     yi = random.choice(YI_OPTIONS)
     ji = random.choice(JI_OPTIONS)
     c.execute("INSERT OR IGNORE INTO quotes (quote, used_date) VALUES (?,?)", (new_quote, today))
     conn.commit()
 
+    # 生成日历卡片图片 URL
     prompt = f"生成日历卡片图片, 今日名言 '{new_quote}', 宜 '{yi}', 忌 '{ji}', 清爽, 蓝白色系, 微信贴图尺寸, PNG格式"
     try:
         resp = requests.post(

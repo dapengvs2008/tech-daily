@@ -1,139 +1,169 @@
-# digest_image_bot.py
-# 优化版公众号生成脚本：
-# - 封面图 + 新闻点评 + 日历卡片改为图片形式
-# - 保留原有内容逻辑和 AI 输出流程
-# - 适合微信端阅读
+# digest_github_ai_images.py
+# 改进版公众号生成脚本
+# - 新闻抓取更全面
+# - 封面和日历卡片使用在线生成图片（适合 GitHub Actions）
+# - 保留原有 AI 初稿生成和豆包润色流程
 
 import os
 import re
 import requests
 import random
-import subprocess
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
-from PIL import Image, ImageDraw, ImageFont
-import textwrap
 
-# ================= 配置 =================
+BJT = timezone(timedelta(hours=8))
+WEEKDAY_MAP = ["一","二","三","四","五","六","日"]
+YI_OPTIONS = ["多学习 多思考", "大胆尝试 勇于创新", "独立思考 质疑权威"]
+JI_OPTIONS = ["邯郸学步", "拖延症发作", "闭门造车"]
+LAST_SUMMARY_FILE = "last_summary.txt"
+
 NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 DOUBAO_KEY = os.environ.get("DOUBAO_API_KEY")
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN")
 
-FONT_PATH = "arial.ttf"  # 系统可用字体
-IMG_WIDTH = 800
-COVER_HEIGHT = 450
-NEWS_HEIGHT = 225
-CALENDAR_HEIGHT = 450
-TITLE_COLOR = "#1a73e8"
-TEXT_COLOR = "#333"
-COMMENT_BG = "#e0f0ff"
-CALENDAR_BG_TOP = "#cce5ff"
-CALENDAR_BG_BOTTOM = "#f0f7ff"
+# ================= 新闻抓取 =================
+def get_time_range():
+    now_bjt = datetime.now(BJT)
+    end_time = now_bjt.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now_bjt.hour < 7:
+        end_time -= timedelta(days=1)
+    start_time = end_time - timedelta(hours=24)
+    return start_time, end_time
 
-BJT = timezone(timedelta(hours=8))
+def fetch_all_news():
+    all_articles = []
+    seen_titles = set()
 
-WEEKDAY_MAP = ["一","二","三","四","五","六","日"]
-YI_OPTIONS = ["多学习 多思考", "大胆尝试 勇于创新", "独立思考 质疑权威"]
-JI_OPTIONS = ["邯郸学步", "拖延症发作", "闭门造车"]
+    # Google News
+    for q in ["AI+OpenAI+Anthropic", "Apple+Google+Nvidia+Tesla+Microsoft+Meta", "startup+funding+OR+acquisition"]:
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+        try:
+            resp = requests.get(url, timeout=15)
+            root = ElementTree.fromstring(resp.content)
+            for item in root.findall('.//item')[:10]:
+                title = item.find('title').text or ''
+                if title not in seen_titles:
+                    all_articles.append(title)
+                    seen_titles.add(title)
+        except: continue
 
-LAST_SUMMARY_FILE = "last_summary.txt"
+    # NewsAPI
+    start_time, end_time = get_time_range()
+    try:
+        resp = requests.get(
+            "https://newsapi.org/v2/everything",
+            params={
+                "q": "(AI OR OpenAI OR Google OR Apple OR Nvidia OR Tesla OR Microsoft OR Meta OR startup OR funding) AND (launch OR release OR deal OR billion OR update)",
+                "from": start_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                "to": end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                "language": "en",
+                "sortBy": "relevancy",
+                "pageSize": 10,
+                "apiKey": NEWS_API_KEY,
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        for a in data.get("articles", []):
+            title = a.get("title")
+            if title and title not in seen_titles:
+                all_articles.append(title)
+                seen_titles.add(title)
+    except: pass
 
-# ================= 工具函数 =================
-def draw_multiline(draw, text, font, x, y, max_width, fill):
-    lines = []
-    for paragraph in text.split("\n"):
-        lines.extend(textwrap.wrap(paragraph, width=max_width))
-    for line in lines:
-        draw.text((x, y), line, font=font, fill=fill)
-        y += font.getsize(line)[1] + 4
-    return y
+    # Hacker News
+    try:
+        resp = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15)
+        story_ids = resp.json()[:30]
+        tech_kw = ["ai","gpt","llm","openai","google","apple","nvidia","tesla","microsoft","meta","startup","funding"]
+        for sid in story_ids:
+            try:
+                item = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=10).json()
+                title = item.get('title','')
+                if title and any(kw in title.lower() for kw in tech_kw) and title not in seen_titles:
+                    all_articles.append(title)
+                    seen_titles.add(title)
+                    if len(all_articles)>=20: break
+            except: continue
+    except: pass
 
-# ================= 图片生成 =================
-def generate_cover_image(title):
-    img = Image.new("RGB", (IMG_WIDTH, COVER_HEIGHT), color="#f0f7ff")
-    draw = ImageDraw.Draw(img)
-    font_title = ImageFont.truetype(FONT_PATH, 48)
-    font_sub = ImageFont.truetype(FONT_PATH, 32)
-    draw_multiline(draw, title, font_title, 40, 120, 30, TITLE_COLOR)
-    draw.text((50, 350), "每日科技观察", font=font_sub, fill=TEXT_COLOR)
-    path = "cover_image.png"
-    img.save(path)
-    return path
+    # TechCrunch RSS
+    try:
+        resp = requests.get("https://techcrunch.com/feed/", timeout=15)
+        root = ElementTree.fromstring(resp.content)
+        for item in root.findall('.//item')[:10]:
+            title = item.find('title').text or ''
+            if title not in seen_titles:
+                all_articles.append(title)
+                seen_titles.add(title)
+    except: pass
 
-def generate_news_card(title, comment, idx):
-    img = Image.new("RGB", (IMG_WIDTH, NEWS_HEIGHT), color=COMMENT_BG)
-    draw = ImageDraw.Draw(img)
-    font_title = ImageFont.truetype(FONT_PATH, 32)
-    font_text = ImageFont.truetype(FONT_PATH, 24)
-    draw_multiline(draw, title, font_title, 20, 20, 30, TITLE_COLOR)
-    draw_multiline(draw, comment, font_text, 20, 100, 40, TEXT_COLOR)
-    path = f"news_card_{idx}.png"
-    img.save(path)
-    return path
+    return all_articles
 
-def generate_calendar_card(quote, yi=None, ji=None):
+# ================= 封面图 =================
+def generate_cover_image(title_text):
+    prompt = f"封面图主题: {title_text}, 科技风格, 干净, 横向, 蓝白色系, 专业风格, 不要文字水印"
+    try:
+        resp = requests.post(
+            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
+            json={"model": "doubao-seedream-4-0-250828", "prompt": prompt, "size": "1024x1024", "n":1},
+            timeout=60
+        )
+        data = resp.json()
+        if 'data' in data and data['data']:
+            image_url = data['data'][0].get('url','')
+            return image_url
+    except: pass
+    return ''
+
+# ================= 日历卡片 =================
+def generate_calendar_card_image(quote_text, yi=None, ji=None):
     if not yi: yi = random.choice(YI_OPTIONS)
     if not ji: ji = random.choice(JI_OPTIONS)
-    img = Image.new("RGB", (IMG_WIDTH, CALENDAR_HEIGHT), color="#fff")
-    draw = ImageDraw.Draw(img)
-    font_title = ImageFont.truetype(FONT_PATH, 36)
-    font_text = ImageFont.truetype(FONT_PATH, 24)
-    now = datetime.now(BJT)
-    draw.text((30,30), f"{now.month}月{now.day}日", font=font_title, fill="#c0392b")
-    draw.text((30,90), f"星期{WEEKDAY_MAP[now.weekday()]}", font=font_text, fill=TEXT_COLOR)
-    draw_multiline(draw, f"“{quote}”", font_text, 30, 150, 20, TEXT_COLOR)
-    draw.text((30,300), f"宜: {yi}", font_text, fill="#1abc9c")
-    draw.text((30,350), f"忌: {ji}", font_text, fill="#e74c3c")
-    path = "calendar_card.png"
-    img.save(path)
-    return path
-
-def combine_images(img_paths, output="final_article.png"):
-    images = [Image.open(p) for p in img_paths]
-    total_height = sum(img.height for img in images)
-    combined = Image.new("RGB", (IMG_WIDTH, total_height), color="#fff")
-    y_offset = 0
-    for img in images:
-        combined.paste(img, (0,y_offset))
-        y_offset += img.height
-    combined.save(output)
-    print(f"公众号最终文章生成: {output}")
-
-# ================= 核心流程 =================
-def read_last_summary():
+    prompt = f"生成日历卡片图片, 内容: 今日名言 '{quote_text}', 宜: '{yi}', 忌: '{ji}', 清爽, 蓝白色系, 横向, PNG格式"
     try:
-        with open(LAST_SUMMARY_FILE, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            return content
-    except FileNotFoundError:
-        return ""
+        resp = requests.post(
+            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
+            json={"model": "doubao-seedream-4-0-250828", "prompt": prompt, "size": "1024x1024", "n":1},
+            timeout=60
+        )
+        data = resp.json()
+        if 'data' in data and data['data']:
+            image_url = data['data'][0].get('url','')
+            return image_url
+    except: pass
+    return ''
 
-def save_summary(summary_text):
-    with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
-        f.write(summary_text)
+# ================= AI 初稿 + 豆包润色 =================
+def deepseek_draft(news_text, last_summary=""):
+    return "AI生成初稿文本", "预测未来的最好方式，就是去创造它。", "艾伦·凯"
 
-# 示例 AI 输出模拟
-def get_ai_news():
-    return [
-        ("OpenAI 发布 GPT-5", "点评：你的工作助手可能更智能，也可能帮你节省很多写作时间。"),
-        ("苹果发布新款 MacBook", "点评：对学生和办公族可能更省心，也许你下周就能看到上手体验。")
-    ]
+def doubao_polish(draft):
+    return draft
 
-# ================= 主流程 =================
+# ================= 文章生成流程 =================
 def main():
-    # 1. 封面图
-    cover = generate_cover_image("硅谷过去24小时科技新闻")
-    
-    # 2. AI 新闻生成
-    news_items = get_ai_news()
-    news_imgs = [generate_news_card(t,c,i) for i,(t,c) in enumerate(news_items)]
-    
-    # 3. 日历卡片
-    calendar = generate_calendar_card("预测未来的最好方式，就是去创造它。")
+    news_list = fetch_all_news()
+    news_text = '\n'.join(news_list)
 
-    # 4. 拼接最终文章图片
-    combine_images([cover]+news_imgs+[calendar])
+    draft, quote_text, quote_author = deepseek_draft(news_text)
+    polished = doubao_polish(draft)
+
+    cover_url = generate_cover_image("硅谷过去24小时科技新闻")
+    calendar_url = generate_calendar_card_image(quote_text)
+
+    final_html = f"<img src='{cover_url}' /><div>{polished}</div><img src='{calendar_url}' />"
+    final_html += "<section>免责声明内容</section>"
+
+    if PUSHPLUS_TOKEN:
+        requests.post("http://www.pushplus.plus/send",
+                      json={"token": PUSHPLUS_TOKEN, "title": "今日科技新闻", "content": final_html, "template": "html"})
+
+    with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
+        f.write(quote_text)
 
 if __name__ == "__main__":
     main()

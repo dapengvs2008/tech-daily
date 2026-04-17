@@ -319,13 +319,65 @@ def fetch_techcrunch_rss():
         return []
 
 
-def generate_cover_image(title_text):
-    prompt = f"A clean flat illustration about: {title_text}. Blue and white color scheme, modern minimalist tech style. Elements: circuits, chips, robots, data streams, rockets. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image. No human faces. Horizontal composition, professional and futuristic."
+def generate_image_prompt(article_title, draft_text):
+    """让 DeepSeek 根据今天的文章内容，生成针对性的英文图像 prompt"""
+    prompt = f"""你是一位资深视觉设计师。请根据下面这篇科技日报的标题和核心内容，为它设计一张公众号封面图的 AI 绘画英文 prompt。
+
+## 文章标题
+{article_title}
+
+## 文章核心内容（节选）
+{draft_text[:1500]}
+
+## 设计要求
+1. 图像必须能**精准呼应今天文章的核心主题**——如果今天讲 AI 竞争，就用两方对抗的视觉元素；如果讲芯片，就用芯片相关元素；如果讲航天，就用太空元素
+2. 风格：扁平插画 / 科技感 / 简洁现代
+3. 主色调：蓝色和白色为主
+4. 绝对不能有任何文字、字母、水印、logo
+5. 不要人物面部特写
+6. 横版构图
+
+## 输出要求
+直接输出一段纯英文的 AI 绘画 prompt（60-100词），不要任何解释、不要中文、不要引号包围。要包含：
+- 主题元素（和今天文章内容高度相关的具体视觉符号）
+- 风格关键词（flat illustration, minimalist tech style）
+- 色彩（blue and white color palette）
+- 禁止项（NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS, no human faces）
+- 构图（horizontal composition, clean background）
+
+直接输出英文 prompt："""
+
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 300},
+            timeout=60,
+        )
+        data = resp.json()
+        if "choices" in data:
+            image_prompt = data["choices"][0]["message"]["content"].strip()
+            # 清理可能的引号或中文
+            image_prompt = image_prompt.strip('"').strip('\u201c').strip('\u201d').strip("'")
+            print(f"  生成图像prompt: {image_prompt[:100]}...")
+            return image_prompt
+    except Exception as e:
+        print(f"  图像prompt生成失败: {e}")
+
+    # 兜底prompt
+    return f"A clean flat illustration about technology news. Blue and white color scheme, modern minimalist tech style. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS. No human faces. Horizontal composition."
+
+
+def generate_cover_image(image_prompt):
+    # 确保 prompt 末尾包含禁止文字的指令
+    if "NO TEXT" not in image_prompt.upper():
+        image_prompt += ". NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image."
+
     try:
         resp = requests.post(
             "https://ark.cn-beijing.volces.com/api/v3/images/generations",
             headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-seedream-4-0-250828", "prompt": prompt, "size": "1024x1024", "n": 1},
+            json={"model": "doubao-seedream-4-0-250828", "prompt": image_prompt, "size": "1024x1024", "n": 1},
             timeout=60,
         )
         data = resp.json()
@@ -689,7 +741,10 @@ if __name__ == "__main__":
         print("=== 6/9 生成封面图 ===")
         article_title = extract_title(final)
         print(f"  封面主题: {article_title}")
-        cover_url = generate_cover_image(article_title)
+        # 先用 DeepSeek 根据今天的内容生成图像 prompt
+        image_prompt = generate_image_prompt(article_title, draft)
+        # 再用豆包按照这个 prompt 画图
+        cover_url = generate_cover_image(image_prompt)
         if cover_url:
             cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final

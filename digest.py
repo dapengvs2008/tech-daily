@@ -24,31 +24,11 @@ JI_OPTIONS = [
     "故步自封", "拖延症发作", "闭门造车",
     "过度优化", "完美主义", "只收藏不行动",
 ]
-TECH_QUOTES = [
-    ("模仿并不丢人，模仿是为了超越。", "马化腾（腾讯创始人）"),
-    ("预测未来的最好方式，就是去创造它。", "艾伦·凯（计算机科学家）"),
-    ("Stay hungry, stay foolish.", "史蒂夫·乔布斯（苹果创始人）"),
-    ("任何足够先进的技术，都与魔法无异。", "亚瑟·克拉克（科幻作家）"),
-    ("最好的创业方式，是解决你自己遇到的问题。", "保罗·格雷厄姆（YC创始人）"),
-    ("我们总是高估两年的变化，低估十年的变化。", "比尔·盖茨（微软创始人）"),
-    ("创新区分了领导者和跟随者。", "史蒂夫·乔布斯（苹果创始人）"),
-    ("AI不会取代人类，但会用AI的人会取代不用的人。", "黄仁勋（英伟达CEO）"),
-    ("快速行动，打破常规。", "马克·扎克伯格（Meta CEO）"),
-    ("软件正在吞噬世界。", "马克·安德森（a16z创始人）"),
-    ("真正的风险不是做得太多，而是做得太少。", "萨姆·奥特曼（OpenAI CEO）"),
-    ("未来已来，只是分布不均匀。", "威廉·吉布森（科幻作家）"),
-    ("想象力比知识更重要。", "爱因斯坦（物理学家）"),
-    ("第一步是确立一件事是可能的，然后概率就会发生。", "埃隆·马斯克（特斯拉CEO）"),
-    ("下一个大事件，永远看起来像玩具。", "克里斯·迪克森（a16z合伙人）"),
-    ("简洁是终极的复杂。", "达·芬奇（文艺复兴巨匠）"),
-    ("伟大的产品不是被设计出来的，是被发现的。", "张一鸣（字节跳动创始人）"),
-    ("技术是把双刃剑，但不拥抱它的代价更大。", "李开复（创新工场创始人）"),
-    ("把每天当作最后一天来过，终有一天你会对的。", "史蒂夫·乔布斯（苹果创始人）"),
-    ("数据是新的石油。", "克莱夫·亨比（数学家）"),
-]
 
+LAST_SUMMARY_FILE = "last_summary.txt"
+LAST_QUOTES_FILE = "last_quotes.txt"
+MAX_RECENT_QUOTES = 7
 
-# ===== HTML 文本提取器 =====
 
 class TextExtractor(HTMLParser):
     def __init__(self):
@@ -67,6 +47,7 @@ class TextExtractor(HTMLParser):
             if len(text) > 20:
                 self.texts.append(text)
 
+
 def extract_text_from_html(html_content, max_chars=1500):
     try:
         parser = TextExtractor()
@@ -77,10 +58,7 @@ def extract_text_from_html(html_content, max_chars=1500):
         return ""
 
 
-# ===== 抓取新闻全文 =====
-
 def fetch_article_fulltext(url, max_chars=1500):
-    """访问新闻URL，提取正文前1500字"""
     try:
         resp = requests.get(url, timeout=10, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -93,21 +71,14 @@ def fetch_article_fulltext(url, max_chars=1500):
 
 
 def enrich_articles_with_fulltext(articles, max_fetch=10):
-    """对前max_fetch条新闻抓取全文，补充到素材中"""
     enriched = []
     fetch_count = 0
     for article in articles:
         if fetch_count < max_fetch:
-            # 从文章信息中提取URL
             url_match = re.search(r'链接: (https?://\S+)', article)
             url = ""
             if url_match:
                 url = url_match.group(1)
-            # NewsAPI的文章没有单独的链接行，但有原始URL
-            # Google News的链接指向Google跳转页，全文抓取效果不好
-            # TechCrunch RSS有链接
-            # Hacker News有链接
-
             if url and "news.google.com" not in url:
                 fulltext = fetch_article_fulltext(url)
                 if fulltext and len(fulltext) > 100:
@@ -116,6 +87,30 @@ def enrich_articles_with_fulltext(articles, max_fetch=10):
                     print(f"    全文抓取成功: {url[:60]}... ({len(fulltext)}字)")
         enriched.append(article)
     return enriched
+
+
+def read_recent_quotes():
+    try:
+        with open(LAST_QUOTES_FILE, "r", encoding="utf-8") as f:
+            quotes = [line.strip() for line in f.readlines() if line.strip()]
+            return quotes[-MAX_RECENT_QUOTES:]
+    except FileNotFoundError:
+        return []
+
+
+def save_recent_quote(quote_text):
+    try:
+        quotes = read_recent_quotes()
+        quotes.append(quote_text)
+        quotes = quotes[-MAX_RECENT_QUOTES:]
+        with open(LAST_QUOTES_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(quotes))
+        subprocess.run(["git", "add", LAST_QUOTES_FILE], check=False)
+        subprocess.run(["git", "commit", "-m", "auto: update recent quotes"], check=False)
+        subprocess.run(["git", "push"], check=False)
+        print(f"  名言已加入去重列表")
+    except Exception as e:
+        print(f"  保存名言失败: {e}")
 
 
 def generate_calendar_card(quote_text="", quote_author=""):
@@ -171,8 +166,6 @@ DISCLAIMER = """
 """
 
 
-LAST_SUMMARY_FILE = "last_summary.txt"
-
 def read_last_summary():
     try:
         with open(LAST_SUMMARY_FILE, "r", encoding="utf-8") as f:
@@ -185,6 +178,7 @@ def read_last_summary():
     print("  无昨日总结")
     return ""
 
+
 def save_summary(summary_text):
     try:
         with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
@@ -194,9 +188,10 @@ def save_summary(summary_text):
         subprocess.run(["git", "add", LAST_SUMMARY_FILE], check=False)
         subprocess.run(["git", "commit", "-m", "auto: update last summary"], check=False)
         subprocess.run(["git", "push"], check=False)
-        print(f"  今日总结已保存并推送到仓库")
+        print(f"  今日总结已保存")
     except Exception as e:
         print(f"  保存总结失败: {e}")
+
 
 def extract_summary_from_html(html_text):
     match = re.search(r'三句话说清楚</p>(.*?)</section>', html_text, re.DOTALL)
@@ -214,8 +209,6 @@ def get_time_range():
     start_time = end_time - timedelta(hours=24)
     return start_time, end_time
 
-
-# ===== 四信源抓取（带URL用于全文抓取） =====
 
 def fetch_google_news():
     queries = [
@@ -328,17 +321,11 @@ def fetch_techcrunch_rss():
 
 def generate_cover_image(title_text):
     prompt = f"A clean flat illustration about: {title_text}. Blue and white color scheme, modern minimalist tech style. Elements: circuits, chips, robots, data streams, rockets. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image. No human faces. Horizontal composition, professional and futuristic."
-
     try:
         resp = requests.post(
             "https://ark.cn-beijing.volces.com/api/v3/images/generations",
             headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": "doubao-seedream-4-0-250828",
-                "prompt": prompt,
-                "size": "1024x1024",
-                "n": 1,
-            },
+            json={"model": "doubao-seedream-4-0-250828", "prompt": prompt, "size": "1024x1024", "n": 1},
             timeout=60,
         )
         data = resp.json()
@@ -349,7 +336,6 @@ def generate_cover_image(title_text):
                 return image_url
             b64 = data["data"][0].get("b64_json", "")
             if b64:
-                print("封面图生成成功 (base64)")
                 return f"data:image/png;base64,{b64}"
         print(f"封面图生成失败: {data}")
         return None
@@ -358,51 +344,74 @@ def generate_cover_image(title_text):
         return None
 
 
-def deepseek_draft(news_text, last_summary=""):
+def deepseek_draft(news_text, last_summary="", recent_quotes=None):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
 
     continuity = ""
     if last_summary:
         continuity = f"""
-【重要】昨天的简报结尾提到了以下内容，如果今天的新闻里有相关进展，请在对应新闻中提一句"昨天我们提到的XXX，今天有了新进展——"，形成连续追踪感：
----
+【昨日回顾】如果今天的新闻里有相关进展，请在对应新闻中提一句"昨天我们提到的XXX，今天有了新进展——"：
 {last_summary}
----
 """
 
-    prompt = f"""你是一位资深科技记者。请根据以下新闻素材，整理出一份科技日报初稿。
+    quote_avoid = ""
+    if recent_quotes:
+        quote_avoid = f"\n【避开以下最近用过的名言】：\n" + "\n".join(recent_quotes)
+
+    prompt = f"""你是一位严谨的科技记者。请根据以下新闻素材，整理出一份准确的科技日报初稿。
 
 时间窗口：{date_range}
-{continuity}
-重要提醒：部分新闻附带了【全文摘要】，这是从原文网页抓取的详细内容，请仔细阅读全文摘要来准确理解事件，不要仅凭标题猜测。特别注意区分：
-- "产品本身有漏洞" vs "产品能发现别人的漏洞"——这是完全不同的意思
-- "被起诉" vs "起诉别人"
-- "限制发布" vs "停止开发"
-- "考虑退出" vs "已经退出"
-如果全文摘要和标题有出入，以全文摘要为准。
+{continuity}{quote_avoid}
 
-要求：
-1. 从所有新闻中筛选出最有价值的5-7条
-2. 同一事件合并，多信源交叉验证
+## 核心原则：宁缺毋滥，准确优先
+
+1. **只写你100%确定的内容**。如果某条新闻的信息不充分（只有标题、没有全文、或者表述模糊），宁可跳过这条，也不要自己脑补细节。
+
+2. **区分"事实"和"推断"**：
+   - 只写新闻素材中明确说到的内容
+   - 不要自己补充"这意味着""这说明""预计"等推断性内容作为事实
+   - 点评部分可以有分析，但必须基于明确的事实
+
+3. **易混淆场景特别注意**：
+   - "产品本身有漏洞" vs "产品能发现别人系统的漏洞"
+   - "被起诉" vs "起诉别人"
+   - "限制发布" vs "停止开发"
+   - "考虑退出" vs "已经退出"
+   - "计划投资" vs "已经投资"
+   - "达成协议" vs "正在谈判"
+   如果新闻素材中表述不清晰，用"据悉""有消息称"等模糊措辞，并在末尾标注"（细节待确认）"
+
+4. **带【全文摘要】的新闻优先选用**。只有标题和短描述的新闻，如果涉及敏感话题（诉讼、安全、政府行动、并购金额），除非全文摘要能确认细节，否则不要写进简报。
+
+5. **数据保守处理**：
+   - 金额、百分比、排名等，不同信源不一致时取保守值
+   - 涉及具体数字时加"约""超过"等限定词
+   - 没明确数字的不要自己估算
+
+## 写作要求
+
+1. 筛选最重要、最确定的 4-6 条新闻（不是越多越好，准确比数量重要）
+2. 同一事件合并
 3. 按重要性排列
-4. 每条包含：标题、核心事实（1-3句）、分析点评（1-2句）
+4. 每条包含：标题（事实陈述型，不夸张）、事实描述（只写确定的）、点评（基于事实的分析）
 5. 不要使用任何emoji图标
-6. 正文中不要写"据XX报道""据XX消息"等来源标注，直接陈述事实
-7. 如果某条新闻只有标题没有全文，且内容涉及敏感判断（安全漏洞、诉讼、政府行动），用"有消息称""据报道"等模糊措辞，并标注"具体细节待确认"
-8. 涉及具体数据，不同信源不一致时取保守值并标注"约"
-9. 开头写一个总标题（吸引人但不夸张，不要用"炸锅""震惊""疯了"这类词）
-10. 开头写1-2句引言概括今天核心看点
-11. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
-12. 如果昨天的"接下来看什么"在今天有了进展，务必在相关新闻中回顾提及
-13. 最后单独一行输出一句和今天内容主题最相关的名人名言，格式为：今日名言：内容——作者（身份）
+6. 正文中不要写"据XX报道"，直接陈述事实
+7. 开头写一个总标题（平实准确，不要用"炸锅""震惊""疯了"这类词）
+8. 开头写1-2句引言概括今天核心看点（保守措辞）
+9. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
+
+## 名言要求
+
+最后单独一行输出一句和今天内容主题最相关的名人名言，格式为：今日名言：内容——作者（身份）
+**务必避开【避开以下最近用过的名言】中的内容**，选择不同的名言。
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
 用纯文本输出，不要HTML标签，不要emoji。每条新闻格式：
 ---
 标题
-xxxxx（直接陈述事实，确保准确理解事件本质）
+xxxxx（只写确定的事实）
 点评：xxxxx
 ---
 
@@ -438,65 +447,96 @@ xxxxx（直接陈述事实，确保准确理解事件本质）
         return None, "", ""
 
 
+def doubao_factcheck(draft, news_text):
+    prompt = f"""你是一位严格的事实核查编辑。请对照【原始新闻素材】，审核【初稿】中每条新闻的事实准确性。
+
+你的任务：
+1. 逐条检查初稿中的每个事实陈述是否有原始素材支持
+2. 找出推断性、夸大或不准确的表述
+3. 发现易混淆的错误（例如"有漏洞"vs"能发现漏洞"、"被起诉"vs"起诉别人"）
+4. 输出修正后的初稿
+
+【修正原则】
+- 原始素材没有明确说的内容，要么删掉，要么改为"据悉""据报道"等模糊措辞
+- 具体数字如果和素材不一致，改成素材中的数字
+- 明显错误直接修正
+- 如果某条新闻整体不准确或信息不足，可以整条删掉
+- 保持原初稿的格式结构（总标题、引言、各条新闻、三句话总结）
+
+【原始新闻素材】
+{news_text[:8000]}
+
+【初稿】
+{draft}
+
+请直接输出修正后的完整初稿（保持纯文本格式，不要加说明或评论）。"""
+
+    try:
+        resp = requests.post(
+            "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
+            json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 3500},
+            timeout=180,
+        )
+        data = resp.json()
+        if "choices" not in data:
+            print(f"豆包核查错误: {data}")
+            return draft
+        result = data["choices"][0]["message"]["content"]
+        print(f"豆包事实核查完成 ({len(result)} 字)")
+        return result
+    except Exception as e:
+        print(f"豆包核查失败: {e}，使用原初稿")
+        return draft
+
+
 def doubao_polish(draft):
-    prompt = f"""你是"鹏眼观天下"公众号的主编。你的读者是普通人——可能是上班族、大学生、宝妈、小老板，他们对科技感兴趣但不是从业者，很多专业名词他们不懂。你的任务是把初稿改写成"让不懂科技的人也能看得津津有味"的公众号文章。
+    prompt = f"""你是"鹏眼观天下"公众号的主编。请把已通过事实核查的初稿改写成面向普通读者的公众号文章。
 
-## 第一：事实校验（最关键！）
-- 仔细检查每条新闻的核心事实是否合理
-- 特别注意：如果说某个AI模型"存在安全漏洞"，要判断是模型自身有漏洞，还是模型能发现别人系统的漏洞——这两个意思完全不同
-- 如果初稿中某条新闻的描述看起来不太对劲或者逻辑不通，用更谨慎的措辞改写
-- 发现明显错误直接修正或删除
+读者画像：普通人，上班族、大学生、宝妈、小老板，对科技感兴趣但不是从业者。
 
-## 第二：面向科技小白的改写
+## 改写原则
 
-### 核心原则：像给朋友科普一样写
+### 严守事实底线
+- 绝对不要添加初稿中没有的事实、数据、人物、事件
+- 只做语言润色和结构优化
+- 如果某个表述不确定，宁可用"据报道""有消息称"等谨慎措辞
+
+### 面向小白
 - 每个专业名词/公司名第一次出现时，加一句大白话解释
-  好的示例："Anthropic（就是做Claude的那家公司，ChatGPT最大的对手）"
-  不好的示例：直接写 "Anthropic发布了新模型"
+  示例："Anthropic（做Claude AI的那家公司，ChatGPT最大的对手）"
+- 用生活化类比解释复杂概念
+- 每条点评最后加一句"这和你有什么关系"
 
-### 多用生活化类比
-  好的示例："AI模型蒸馏是什么意思？打个比方，你花了十个亿研发出一道招牌菜的配方，结果有人尝了一口就仿制出了八成味道。"
-
-### 告诉读者"这和你有什么关系"
-  每条点评最后加一句和普通人相关的话
-
-### 正文不标注来源
-  不要写"据XX报道"，直接陈述事实
-
-### 连续追踪
-  如果初稿中有"昨天我们提到"这类回顾内容，保留并自然融入
-
-### 开头钩子（非常重要！）
-  引言要用悬念、反差或好奇心钩住读者
-  好的示例："你敢信吗？做ChatGPT的公司，今天居然公开说'我怕对手'。"
-  不好的示例："今天科技圈发生了几件大事。"
+### 开头钩子
+  引言用悬念或好奇心钩住读者，但要基于真实信息，不要夸张
 
 ### 标题要求
-  - 吸引人但不浮夸，不要用"炸锅""震惊""疯了""核弹级"
-  - 用具体信息引发好奇心
+  - 平实但吸引人，不要"炸锅""震惊""疯了""核弹级"
+  - 标题必须准确反映内容，不能标题党
 
-### 语气要求
-- 像一个懂行的朋友在饭桌上讲新鲜事
-- 可以用"说白了""换句话说""你可以理解为"
-- 偶尔带点幽默但不油腻
+### 语气
+- 像懂行朋友在聊天
+- 用"说白了""换句话说""你可以理解为"
 - 不要用"赋能""生态""闭环""底层逻辑""范式转移"
-- 不要使用任何emoji图标
+- 不要emoji
 
-## 第三：公众号排版
+## 排版要求
+
 直接输出微信公众号兼容的HTML，所有样式内联。不要使用任何emoji。
 
 总标题：
 <p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
 
-引言（钩子）：
+引言：
 <section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0;">引言——让人忍不住往下看</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0;">引言</p>
 </section>
 
 每条新闻：
 <section style="margin-bottom:8px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——大白话，不要emoji</p>
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（不要写来源，专业名词加括号解释）</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
 <p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
 </section>
@@ -512,18 +552,15 @@ def doubao_polish(draft):
 </section>
 
 ## 严格禁止
-- 不要用代码块
-- 不要用markdown加粗语法，用<b>标签
-- 不要用h1 h2 h3标签，用p加内联style
-- 不要用div标签，用section
-- 不要使用任何emoji图标
-- 不要加免责声明和日历卡片（代码自动追加）
-- 不要在正文中标注新闻来源
-- 专业名词不能不加解释直接出现
-- 标题不要浮夸词汇
-- 点评不要用斜体
+- 添加初稿中没有的事实
+- 代码块、markdown语法
+- h1 h2 h3标签、div标签
+- 任何emoji
+- 免责声明和日历卡片（代码自动追加）
+- 正文中标注来源
+- 斜体
 
-初稿内容：
+核查后的初稿：
 {draft}"""
 
     try:
@@ -535,13 +572,13 @@ def doubao_polish(draft):
         )
         data = resp.json()
         if "choices" not in data:
-            print(f"豆包错误: {data}")
+            print(f"豆包润色错误: {data}")
             return None
         result = data["choices"][0]["message"]["content"]
         print(f"豆包润色完成 ({len(result)} 字)")
         return result
     except Exception as e:
-        print(f"豆包请求失败: {e}")
+        print(f"豆包润色失败: {e}")
         return None
 
 
@@ -585,12 +622,13 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    # 0. 读取昨日总结
-    print("=== 0/8 读取昨日总结 ===")
+    print("=== 0/9 读取历史记录 ===")
     last_summary = read_last_summary()
+    recent_quotes = read_recent_quotes()
+    if recent_quotes:
+        print(f"  已读取最近{len(recent_quotes)}条名言用于去重")
 
-    # 1. 抓取新闻
-    print("=== 1/8 抓取新闻 ===")
+    print("=== 1/9 抓取新闻 ===")
     print("  Google News...")
     google_articles = fetch_google_news()
     print("  NewsAPI...")
@@ -608,61 +646,53 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        # 2. 抓取新闻全文（关键步骤！防止误读）
-        print("=== 2/8 抓取新闻全文 ===")
+        print("=== 2/9 抓取新闻全文 ===")
         all_articles = enrich_articles_with_fulltext(all_articles, max_fetch=10)
         news_text = "\n\n".join(all_articles)
 
-        # 3. DeepSeek 初稿
-        print("=== 3/8 DeepSeek 生成初稿 ===")
-        draft, quote_text, quote_author = deepseek_draft(news_text, last_summary)
+        print("=== 3/9 DeepSeek 生成初稿（保守模式）===")
+        draft, quote_text, quote_author = deepseek_draft(news_text, last_summary, recent_quotes)
 
         if draft:
-            # 4. 豆包润色
-            print("=== 4/8 豆包润色+校验+排版 ===")
+            print("=== 4/9 豆包独立事实核查 ===")
+            draft = doubao_factcheck(draft, news_text)
+
+            print("=== 5/9 豆包润色+排版 ===")
             polished = doubao_polish(draft)
 
             if polished:
                 final = clean_response(polished)
             else:
-                print("  豆包失败，使用DeepSeek初稿")
+                print("  豆包润色失败，使用核查后初稿")
                 final = f"<p style='color:#999;font-size:12px;'>（本期为初稿版本，润色服务暂时不可用）</p>\n{draft}"
         else:
             final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
             quote_text = ""
             quote_author = ""
 
-        # 5. 生成封面图
-        print("=== 5/8 生成封面图 ===")
+        print("=== 6/9 生成封面图 ===")
         article_title = extract_title(final)
         print(f"  封面主题: {article_title}")
         cover_url = generate_cover_image(article_title)
         if cover_url:
             cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final
-            print("  封面图已插入文章开头")
-        else:
-            print("  封面图生成失败，跳过")
 
-        # 6. 日历卡片
-        print("=== 6/8 生成日历卡片 ===")
+        print("=== 7/9 生成日历卡片 ===")
         if quote_text:
-            print(f"  使用AI名言: {quote_text}")
+            print(f"  今日名言: {quote_text}")
         calendar = generate_calendar_card(quote_text, quote_author)
 
-        # 7. 拼接：正文 + 日历卡片 + 免责声明
         final = final + calendar + DISCLAIMER
 
-        # 8. 推送
-        print("=== 7/8 推送微信 ===")
+        print("=== 8/9 推送微信 ===")
         send_pushplus(title, final)
 
-        # 9. 保存今日总结
-        print("=== 8/8 保存今日总结 ===")
+        print("=== 9/9 保存历史记录 ===")
         today_summary = extract_summary_from_html(final)
         if today_summary:
             save_summary(today_summary)
-        else:
-            print("  未提取到总结内容，跳过保存")
+        if quote_text:
+            save_recent_quote(quote_text)
 
     print("全部完成!")

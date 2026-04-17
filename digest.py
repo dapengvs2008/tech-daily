@@ -391,15 +391,23 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
 
 ## 写作要求
 
-1. 筛选最重要、最确定的 4-6 条新闻（不是越多越好，准确比数量重要）
-2. 同一事件合并
+1. 筛选 6-8 条有全文摘要支持的重要新闻
+2. 同一事件合并，交叉验证
 3. 按重要性排列
-4. 每条包含：标题（事实陈述型，不夸张）、事实描述（只写确定的）、点评（基于事实的分析）
+4. 每条包含：
+   - 标题（事实陈述型，不夸张）
+   - **事实描述（3-5句话，基于全文摘要展开细节：包括具体动作、关键数字、关键人物、背景、影响范围等所有原文明确提及的信息，不要只写一句话）**
+   - **点评（2-3句话的深度分析：基于事实分析这件事的意义、对行业的影响、对普通人的影响，观点可以鲜明但必须基于事实）**
 5. 不要使用任何emoji图标
 6. 正文中不要写"据XX报道"，直接陈述事实
 7. 开头写一个总标题（平实准确，不要用"炸锅""震惊""疯了"这类词）
 8. 开头写1-2句引言概括今天核心看点（保守措辞）
-9. 结尾写三句话总结：最重要的一件事、钱往哪儿流、接下来看什么
+9. 结尾三句话总结要详细，每句2-3行：
+   - 最重要的一件事：说清楚是什么、为什么重要
+   - 钱往哪儿流：具体说明资金流向和背后的投资逻辑
+   - 接下来看什么：点出1-2个具体的观察点
+
+**关键：充实不等于编造。每一个细节都要能在新闻素材中找到依据。宁可把原文已有的细节充分展开，也不要为了凑字数自己添加内容。**
 
 ## 名言要求
 
@@ -422,7 +430,7 @@ xxxxx（只写确定的事实）
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 3000},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4500},
             timeout=120,
         )
         data = resp.json()
@@ -502,6 +510,14 @@ def doubao_polish(draft):
 - 只做语言润色和结构优化
 - 如果某个表述不确定，宁可用"据报道""有消息称"等谨慎措辞
 
+### 内容要充实、有深度
+- **不要删减初稿中的事实细节**，完整保留每一个数据、人名、背景
+- 改写时把初稿的信息"展开讲透"，而不是浓缩精简
+- 每条新闻的正文保持 3-5 句话的体量，把事实讲清楚讲完整
+- 每条鹏眼点评保持 2-3 句话，有分析、有观点、有和普通人的关联
+- 结尾三句话总结要写得充实，每句 2-3 行，说清楚背景和意义
+- 文章整体字数目标：1500-2500 字
+
 ### 面向小白
 - 每个专业名词/公司名第一次出现时，加一句大白话解释
   示例："Anthropic（做Claude AI的那家公司，ChatGPT最大的对手）"
@@ -567,7 +583,7 @@ def doubao_polish(draft):
         resp = requests.post(
             "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
             headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
+            json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
             timeout=180,
         )
         data = resp.json()

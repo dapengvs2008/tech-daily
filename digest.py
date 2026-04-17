@@ -1,4 +1,4 @@
-import os, json, re, requests, random, subprocess
+import os, json, re, requests, random, subprocess, asyncio
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 from html.parser import HTMLParser
@@ -7,10 +7,15 @@ NEWS_API_KEY   = os.environ["NEWS_API_KEY"]
 DEEPSEEK_KEY   = os.environ["DEEPSEEK_API_KEY"]
 DOUBAO_KEY     = os.environ["DOUBAO_API_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
+GITHUB_REPO    = os.environ.get("GITHUB_REPO", "dapengvs2008/tech-daily")
 
 BJT = timezone(timedelta(hours=8))
 
 WEEKDAY_MAP = {
+    0: "Monday", 1: "Tuesday", 2: "Wednesday",
+    3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday",
+}
+WEEKDAY_CN = {
     0: "星期一", 1: "星期二", 2: "星期三",
     3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日",
 }
@@ -24,10 +29,6 @@ JI_OPTIONS = [
     "故步自封", "拖延症发作", "闭门造车",
     "过度优化", "完美主义", "只收藏不行动",
 ]
-
-LAST_SUMMARY_FILE = "last_summary.txt"
-LAST_QUOTES_FILE = "last_quotes.txt"
-MAX_RECENT_QUOTES = 7
 
 
 class TextExtractor(HTMLParser):
@@ -47,22 +48,18 @@ class TextExtractor(HTMLParser):
             if len(text) > 20:
                 self.texts.append(text)
 
-
-def extract_text_from_html(html_content, max_chars=1500):
+def extract_text_from_html(html_content, max_chars=2000):
     try:
         parser = TextExtractor()
         parser.feed(html_content)
-        full_text = "\n".join(parser.texts)
-        return full_text[:max_chars]
+        return "\n".join(parser.texts)[:max_chars]
     except Exception:
         return ""
 
 
-def fetch_article_fulltext(url, max_chars=1500):
+def fetch_article_fulltext(url, max_chars=2000):
     try:
-        resp = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code != 200:
             return ""
         return extract_text_from_html(resp.text, max_chars)
@@ -70,45 +67,217 @@ def fetch_article_fulltext(url, max_chars=1500):
         return ""
 
 
-def enrich_articles_with_fulltext(articles, max_fetch=10):
+def enrich_articles_with_fulltext(articles, max_fetch=12):
     enriched = []
     fetch_count = 0
     for article in articles:
         if fetch_count < max_fetch:
             url_match = re.search(r'链接: (https?://\S+)', article)
-            url = ""
-            if url_match:
-                url = url_match.group(1)
+            url = url_match.group(1) if url_match else ""
             if url and "news.google.com" not in url:
                 fulltext = fetch_article_fulltext(url)
                 if fulltext and len(fulltext) > 100:
                     article += f"\n【全文摘要】{fulltext}"
                     fetch_count += 1
-                    print(f"    全文抓取成功: {url[:60]}... ({len(fulltext)}字)")
+                    print(f"    全文抓取成功: {url[:60]}...")
         enriched.append(article)
     return enriched
 
 
+# ===== 封面模板 =====
+
+COVER_TOPIC_COLORS = ["#1a73e8", "#0f9d58", "#f29900", "#7b1fa2", "#db4437", "#00acc1", "#ff6d00"]
+
+def build_cover_html(main_title, sub_title, topics):
+    """生成封面 HTML
+    topics: 列表，每个元素是话题短标签（字符串）
+    """
+    # 分两行显示：前3个 / 后面的
+    row1 = topics[:3]
+    row2 = topics[3:5] if len(topics) >= 5 else topics[3:]
+
+    def render_tag(text, color):
+        return f'''
+      <div style="background:#fff;border:1px solid #d0e1f7;padding:9px 14px;border-radius:20px;display:flex;align-items:center;gap:7px;">
+        <div style="width:18px;height:18px;background:{color};border-radius:4px;flex-shrink:0;"></div>
+        <span style="font-size:13px;color:#0c2340;font-weight:500;white-space:nowrap;">{text}</span>
+      </div>'''
+
+    row1_html = "\n".join(render_tag(t, COVER_TOPIC_COLORS[i]) for i, t in enumerate(row1))
+    row2_html = "\n".join(render_tag(t, COVER_TOPIC_COLORS[i+3]) for i, t in enumerate(row2))
+
+    return f'''<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body {{ margin:0; padding:0; font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif; }}
+</style>
+</head>
+<body>
+<div style="width:960px;background:linear-gradient(135deg,#dde8f7 0%,#e8eff9 50%,#f0f4fb 100%);padding:40px 44px;box-sizing:border-box;">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;position:relative;z-index:2;">
+
+    <div style="flex:1;">
+      <div style="display:inline-block;background:#3a5783;color:#fff;padding:8px 18px;border-radius:4px;font-size:16px;font-weight:600;letter-spacing:1px;margin-bottom:18px;">过去24小时</div>
+      <div style="font-size:44px;font-weight:900;color:#1a2d4f;line-height:1.2;margin:0 0 6px 0;letter-spacing:-1px;">{main_title}</div>
+      <div style="font-size:44px;font-weight:900;color:#1a2d4f;line-height:1.2;margin:0;letter-spacing:-1px;">{sub_title}</div>
+    </div>
+
+    <div style="width:260px;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative;height:180px;">
+
+      <div style="position:absolute;top:0;left:0;width:42px;height:42px;background:#fff;border:2px solid #2563eb;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:3;">
+        <span style="color:#2563eb;font-size:16px;font-weight:900;">&lt;/&gt;</span>
+      </div>
+
+      <div style="position:absolute;top:-6px;right:0;width:48px;height:48px;background:#1a2d4f;border-radius:10px;display:flex;align-items:center;justify-content:center;z-index:3;">
+        <span style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-0.5px;">AI</span>
+      </div>
+
+      <div style="position:absolute;bottom:0;left:0;width:42px;height:42px;background:#fff;border:2px solid #1a2d4f;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:3;">
+        <div style="position:relative;width:22px;height:14px;">
+          <div style="position:absolute;top:3px;left:0;width:22px;height:8px;background:#1a2d4f;border-radius:3px;"></div>
+          <div style="position:absolute;top:0;left:3px;width:16px;height:7px;background:#1a2d4f;border-radius:3px 3px 0 0;"></div>
+          <div style="position:absolute;bottom:-2px;left:2px;width:6px;height:6px;background:#fff;border:1.5px solid #1a2d4f;border-radius:50%;"></div>
+          <div style="position:absolute;bottom:-2px;right:2px;width:6px;height:6px;background:#fff;border:1.5px solid #1a2d4f;border-radius:50%;"></div>
+        </div>
+      </div>
+
+      <div style="position:absolute;bottom:0;right:0;width:42px;height:42px;background:#fff;border:2px solid #1a2d4f;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:3;">
+        <div style="width:18px;height:20px;border:2.5px solid #1a2d4f;border-radius:3px 3px 0 0;border-bottom:none;position:relative;">
+          <div style="position:absolute;bottom:-5px;left:-5px;width:23px;height:10px;background:#1a2d4f;border-radius:1px;"></div>
+        </div>
+      </div>
+
+      <div style="position:relative;width:170px;height:118px;">
+        <div style="width:170px;height:108px;background:#1a2d4f;border:4px solid #1a2d4f;border-radius:8px 8px 2px 2px;padding:8px;box-sizing:border-box;">
+          <div style="background:#0d1b34;width:100%;height:100%;border-radius:3px;padding:8px 10px;box-sizing:border-box;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <div style="display:flex;gap:4px;align-items:center;">
+                <div style="width:8px;height:3px;background:#ff6b6b;border-radius:1px;"></div>
+                <div style="width:18px;height:3px;background:#5dd4b1;border-radius:1px;"></div>
+                <div style="width:13px;height:3px;background:#4a90e2;border-radius:1px;"></div>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <div style="width:5px;height:3px;background:#5dd4b1;border-radius:1px;"></div>
+                <div style="width:26px;height:3px;background:#4a90e2;border-radius:1px;"></div>
+                <div style="width:10px;height:3px;background:#ff6b6b;border-radius:1px;"></div>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <div style="width:13px;height:3px;background:#ffc947;border-radius:1px;"></div>
+                <div style="width:16px;height:3px;background:#5dd4b1;border-radius:1px;"></div>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <div style="width:8px;height:3px;background:#ff6b6b;border-radius:1px;"></div>
+                <div style="width:10px;height:3px;background:#4a90e2;border-radius:1px;"></div>
+                <div style="width:21px;height:3px;background:#5dd4b1;border-radius:1px;"></div>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <div style="width:18px;height:3px;background:#4a90e2;border-radius:1px;"></div>
+                <div style="width:8px;height:3px;background:#ffc947;border-radius:1px;"></div>
+              </div>
+            </div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:4px;">
+              <div style="width:3px;height:10px;background:#5dd4b1;"></div>
+              <div style="width:16px;height:3px;background:#fff;border-radius:1px;opacity:0.6;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="width:184px;height:6px;background:#3a5783;border-radius:0 0 8px 8px;margin-left:-7px;"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="margin-top:30px;padding-top:24px;border-top:1px dashed #c5d7f0;position:relative;z-index:2;">
+    <div style="display:flex;gap:12px;justify-content:center;margin-bottom:12px;">
+{row1_html}
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;">
+{row2_html}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>'''
+
+
+# ===== Playwright 截图 =====
+
+async def render_cover_image(html_content, output_path):
+    """用 Playwright 把 HTML 渲染成 PNG 图片"""
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={"width": 960, "height": 600}, device_scale_factor=2)
+        await page.set_content(html_content, wait_until="networkidle")
+        # 自动计算内容高度
+        element = await page.query_selector("body > div")
+        if element:
+            await element.screenshot(path=output_path, type="png")
+        else:
+            await page.screenshot(path=output_path, type="png", full_page=True)
+        await browser.close()
+
+
+def generate_cover_png(main_title, sub_title, topics, output_path="cover.png"):
+    html = build_cover_html(main_title, sub_title, topics)
+    try:
+        asyncio.run(render_cover_image(html, output_path))
+        print(f"  封面图已生成: {output_path}")
+        return output_path
+    except Exception as e:
+        print(f"  封面图生成失败: {e}")
+        return None
+
+
+def commit_image_to_repo(image_path):
+    """把图片 commit 到仓库，返回 raw URL"""
+    try:
+        subprocess.run(["git", "config", "user.name", "Tech Daily Bot"], check=False)
+        subprocess.run(["git", "config", "user.email", "bot@tech-daily.com"], check=False)
+        subprocess.run(["git", "add", image_path], check=False)
+        # 使用时间戳作为提交信息，避免重复
+        timestamp = datetime.now(BJT).strftime("%Y-%m-%d %H:%M")
+        subprocess.run(["git", "commit", "-m", f"auto: cover image {timestamp}"], check=False)
+        subprocess.run(["git", "push"], check=False)
+        # 加上时间戳参数避免CDN缓存
+        ts = int(datetime.now().timestamp())
+        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{image_path}?t={ts}"
+        print(f"  图片已上传: {url}")
+        return url
+    except Exception as e:
+        print(f"  图片上传失败: {e}")
+        return None
+
+
+# ===== 日历卡片 =====
+
+LAST_SUMMARY_FILE = "last_summary.txt"
+LAST_QUOTES_FILE = "last_quotes.txt"
+
 def read_recent_quotes():
     try:
         with open(LAST_QUOTES_FILE, "r", encoding="utf-8") as f:
-            quotes = [line.strip() for line in f.readlines() if line.strip()]
-            return quotes[-MAX_RECENT_QUOTES:]
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+            print(f"  读取到 {len(lines)} 条历史名言")
+            return lines[-7:]
     except FileNotFoundError:
         return []
 
-
-def save_recent_quote(quote_text):
+def save_recent_quote(quote_text, quote_author):
     try:
-        quotes = read_recent_quotes()
-        quotes.append(quote_text)
-        quotes = quotes[-MAX_RECENT_QUOTES:]
+        existing = read_recent_quotes()
+        existing.append(f"{quote_text} —— {quote_author}")
+        existing = existing[-7:]
         with open(LAST_QUOTES_FILE, "w", encoding="utf-8") as f:
-            f.write("\n".join(quotes))
+            f.write("\n".join(existing))
         subprocess.run(["git", "add", LAST_QUOTES_FILE], check=False)
-        subprocess.run(["git", "commit", "-m", "auto: update recent quotes"], check=False)
+        subprocess.run(["git", "commit", "-m", "auto: update last quotes"], check=False)
         subprocess.run(["git", "push"], check=False)
-        print(f"  名言已加入去重列表")
+        print(f"  今日名言已记录")
     except Exception as e:
         print(f"  保存名言失败: {e}")
 
@@ -119,7 +288,7 @@ def generate_calendar_card(quote_text="", quote_author=""):
     month_num = now.month
     month_en = now.strftime("%b").upper()
     day = now.strftime("%d")
-    weekday = WEEKDAY_MAP[now.weekday()]
+    weekday = WEEKDAY_CN[now.weekday()]
     random.seed(now.strftime("%Y%m%d"))
     yi = random.choice(YI_OPTIONS)
     ji = random.choice(JI_OPTIONS)
@@ -178,13 +347,10 @@ def read_last_summary():
     print("  无昨日总结")
     return ""
 
-
 def save_summary(summary_text):
     try:
         with open(LAST_SUMMARY_FILE, "w", encoding="utf-8") as f:
             f.write(summary_text)
-        subprocess.run(["git", "config", "user.name", "Tech Daily Bot"], check=False)
-        subprocess.run(["git", "config", "user.email", "bot@tech-daily.com"], check=False)
         subprocess.run(["git", "add", LAST_SUMMARY_FILE], check=False)
         subprocess.run(["git", "commit", "-m", "auto: update last summary"], check=False)
         subprocess.run(["git", "push"], check=False)
@@ -192,19 +358,17 @@ def save_summary(summary_text):
     except Exception as e:
         print(f"  保存总结失败: {e}")
 
-
 def extract_summary_from_html(html_text):
     match = re.search(r'三句话说清楚</p>(.*?)</section>', html_text, re.DOTALL)
     if match:
-        text = re.sub(r'<[^>]+>', '', match.group(1))
-        return text.strip()
+        return re.sub(r'<[^>]+>', '', match.group(1)).strip()
     return ""
 
 
 def get_time_range():
     now_bjt = datetime.now(BJT)
-    end_time = now_bjt.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now_bjt.hour < 7:
+    end_time = now_bjt.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now_bjt.hour < 6:
         end_time -= timedelta(days=1)
     start_time = end_time - timedelta(hours=24)
     return start_time, end_time
@@ -319,83 +483,6 @@ def fetch_techcrunch_rss():
         return []
 
 
-def generate_image_prompt(article_title, draft_text):
-    """让 DeepSeek 根据今天的文章内容，生成针对性的英文图像 prompt"""
-    prompt = f"""你是一位资深视觉设计师。请根据下面这篇科技日报的标题和核心内容，为它设计一张公众号封面图的 AI 绘画英文 prompt。
-
-## 文章标题
-{article_title}
-
-## 文章核心内容（节选）
-{draft_text[:1500]}
-
-## 设计要求
-1. 图像必须能**精准呼应今天文章的核心主题**——如果今天讲 AI 竞争，就用两方对抗的视觉元素；如果讲芯片，就用芯片相关元素；如果讲航天，就用太空元素
-2. 风格：扁平插画 / 科技感 / 简洁现代
-3. 主色调：蓝色和白色为主
-4. 绝对不能有任何文字、字母、水印、logo
-5. 不要人物面部特写
-6. 横版构图
-
-## 输出要求
-直接输出一段纯英文的 AI 绘画 prompt（60-100词），不要任何解释、不要中文、不要引号包围。要包含：
-- 主题元素（和今天文章内容高度相关的具体视觉符号）
-- 风格关键词（flat illustration, minimalist tech style）
-- 色彩（blue and white color palette）
-- 禁止项（NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS, no human faces）
-- 构图（horizontal composition, clean background）
-
-直接输出英文 prompt："""
-
-    try:
-        resp = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 300},
-            timeout=60,
-        )
-        data = resp.json()
-        if "choices" in data:
-            image_prompt = data["choices"][0]["message"]["content"].strip()
-            # 清理可能的引号或中文
-            image_prompt = image_prompt.strip('"').strip('\u201c').strip('\u201d').strip("'")
-            print(f"  生成图像prompt: {image_prompt[:100]}...")
-            return image_prompt
-    except Exception as e:
-        print(f"  图像prompt生成失败: {e}")
-
-    # 兜底prompt
-    return f"A clean flat illustration about technology news. Blue and white color scheme, modern minimalist tech style. NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS. No human faces. Horizontal composition."
-
-
-def generate_cover_image(image_prompt):
-    # 确保 prompt 末尾包含禁止文字的指令
-    if "NO TEXT" not in image_prompt.upper():
-        image_prompt += ". NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image."
-
-    try:
-        resp = requests.post(
-            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
-            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-seedream-4-0-250828", "prompt": image_prompt, "size": "1024x1024", "n": 1},
-            timeout=60,
-        )
-        data = resp.json()
-        if "data" in data and len(data["data"]) > 0:
-            image_url = data["data"][0].get("url", "")
-            if image_url:
-                print(f"封面图生成成功: {image_url[:80]}...")
-                return image_url
-            b64 = data["data"][0].get("b64_json", "")
-            if b64:
-                return f"data:image/png;base64,{b64}"
-        print(f"封面图生成失败: {data}")
-        return None
-    except Exception as e:
-        print(f"封面图请求失败: {e}")
-        return None
-
-
 def deepseek_draft(news_text, last_summary="", recent_quotes=None):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
@@ -403,77 +490,63 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
     continuity = ""
     if last_summary:
         continuity = f"""
-【昨日回顾】如果今天的新闻里有相关进展，请在对应新闻中提一句"昨天我们提到的XXX，今天有了新进展——"：
+【连续追踪】昨天的简报结尾提到：
+---
 {last_summary}
+---
+如果今天的新闻里有昨天提到的内容的进展，请在对应新闻中自然提一句"昨天我们提到的XXX，今天有了新进展——"。
 """
 
-    quote_avoid = ""
+    quotes_avoid = ""
     if recent_quotes:
-        quote_avoid = f"\n【避开以下最近用过的名言】：\n" + "\n".join(recent_quotes)
+        quotes_avoid = f"""
+【名言去重】最近7天已经用过以下名言，请务必避开这些，推荐一句完全不同的：
+{chr(10).join("- " + q for q in recent_quotes)}
+"""
 
-    prompt = f"""你是一位严谨的科技记者。请根据以下新闻素材，整理出一份准确的科技日报初稿。
+    prompt = f"""你是一位资深且极其严谨的科技记者。请根据以下新闻素材整理科技日报初稿。
 
 时间窗口：{date_range}
-{continuity}{quote_avoid}
+{continuity}
+{quotes_avoid}
 
-## 核心原则：宁缺毋滥，准确优先
+## 第一原则：准确性高于一切
 
-1. **只写你100%确定的内容**。如果某条新闻的信息不充分（只有标题、没有全文、或者表述模糊），宁可跳过这条，也不要自己脑补细节。
+**宁可少写，不可写错。** 具体要求：
 
-2. **区分"事实"和"推断"**：
-   - 只写新闻素材中明确说到的内容
-   - 不要自己补充"这意味着""这说明""预计"等推断性内容作为事实
-   - 点评部分可以有分析，但必须基于明确的事实
-
-3. **易混淆场景特别注意**：
-   - "产品本身有漏洞" vs "产品能发现别人系统的漏洞"
+1. **只写原文明确说了的事**——如果原文只说了A，你不能推断出B
+2. **看不懂就跳过**——仅有标题没有全文摘要且内容不明确的，直接跳过
+3. **特别注意易混淆场景**：
+   - "产品有漏洞" vs "产品能发现别人的漏洞"
    - "被起诉" vs "起诉别人"
    - "限制发布" vs "停止开发"
-   - "考虑退出" vs "已经退出"
-   - "计划投资" vs "已经投资"
-   - "达成协议" vs "正在谈判"
-   如果新闻素材中表述不清晰，用"据悉""有消息称"等模糊措辞，并在末尾标注"（细节待确认）"
-
-4. **带【全文摘要】的新闻优先选用**。只有标题和短描述的新闻，如果涉及敏感话题（诉讼、安全、政府行动、并购金额），除非全文摘要能确认细节，否则不要写进简报。
-
-5. **数据保守处理**：
-   - 金额、百分比、排名等，不同信源不一致时取保守值
-   - 涉及具体数字时加"约""超过"等限定词
-   - 没明确数字的不要自己估算
+   - "计划" vs "已经"
+4. **数据必须谨慎**——具体金额、百分比必须在原文找到对应
 
 ## 写作要求
 
-1. 筛选 6-8 条有全文摘要支持的重要新闻
-2. 同一事件合并，交叉验证
+1. 筛选 5-7 条有全文摘要支持的重要新闻
+2. 同一事件合并
 3. 按重要性排列
 4. 每条包含：
    - 标题（事实陈述型，不夸张）
-   - **事实描述（3-5句话，基于全文摘要展开细节：包括具体动作、关键数字、关键人物、背景、影响范围等所有原文明确提及的信息，不要只写一句话）**
-   - **点评（2-3句话的深度分析：基于事实分析这件事的意义、对行业的影响、对普通人的影响，观点可以鲜明但必须基于事实）**
+   - 事实描述（3-5句话，基于全文摘要展开细节）
+   - 点评（2-3句话，有观点有分析，告诉读者和普通人的关系）
 5. 不要使用任何emoji图标
 6. 正文中不要写"据XX报道"，直接陈述事实
-7. 开头写一个总标题（平实准确，不要用"炸锅""震惊""疯了"这类词）
-8. 开头写1-2句引言概括今天核心看点（保守措辞）
-9. 结尾三句话总结要详细，每句2-3行：
-   - 最重要的一件事：说清楚是什么、为什么重要
-   - 钱往哪儿流：具体说明资金流向和背后的投资逻辑
-   - 接下来看什么：点出1-2个具体的观察点
+7. 开头写总标题（平实但吸引人，不要"炸锅""震惊""疯了"这类词）
+8. 开头写1-2句引言概括今天核心看点
+9. 结尾三句话总结：每句 2-3 行
+10. 最后单独一行输出名人名言，格式：今日名言：内容——作者（身份）
 
-**关键：充实不等于编造。每一个细节都要能在新闻素材中找到依据。宁可把原文已有的细节充分展开，也不要为了凑字数自己添加内容。**
+**额外输出：为今天的简报生成 5 个短话题标签**（4-8个汉字），格式：
+今日标签：标签1 | 标签2 | 标签3 | 标签4 | 标签5
 
-## 名言要求
-
-最后单独一行输出一句和今天内容主题最相关的名人名言，格式为：今日名言：内容——作者（身份）
-**务必避开【避开以下最近用过的名言】中的内容**，选择不同的名言。
+标签要求：每个标签精炼概括一条新闻的核心，便于读者一眼看懂。
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
-用纯文本输出，不要HTML标签，不要emoji。每条新闻格式：
----
-标题
-xxxxx（只写确定的事实）
-点评：xxxxx
----
+用纯文本输出，不要HTML标签，不要emoji。
 
 新闻素材：
 {news_text}"""
@@ -488,110 +561,97 @@ xxxxx（只写确定的事实）
         data = resp.json()
         if "choices" not in data:
             print(f"DeepSeek 错误: {data}")
-            return None, "", ""
+            return None, "", "", []
         draft = data["choices"][0]["message"]["content"]
         print(f"DeepSeek 初稿生成完成 ({len(draft)} 字)")
 
+        # 提取名言
         quote_text = ""
         quote_author = ""
         quote_match = re.search(r'今日名言[：:]\s*(.+?)——(.+)', draft)
         if quote_match:
             quote_text = quote_match.group(1).strip().strip('"').strip('\u201c').strip('\u201d')
-            quote_author = quote_match.group(2).strip()
+            quote_author = quote_match.group(2).strip().split("\n")[0].strip()
             print(f"  今日名言: {quote_text} —— {quote_author}")
             draft = re.sub(r'今日名言[：:].*', '', draft).strip()
 
-        return draft, quote_text, quote_author
+        # 提取标签
+        topics = []
+        tag_match = re.search(r'今日标签[：:]\s*(.+)', draft)
+        if tag_match:
+            tag_line = tag_match.group(1).strip().split("\n")[0]
+            topics = [t.strip() for t in re.split(r'[|｜丨]', tag_line) if t.strip()]
+            topics = topics[:5]
+            print(f"  今日标签: {topics}")
+            draft = re.sub(r'今日标签[：:].*', '', draft).strip()
+
+        return draft, quote_text, quote_author, topics
     except Exception as e:
         print(f"DeepSeek 请求失败: {e}")
-        return None, "", ""
+        return None, "", "", []
 
 
-def doubao_factcheck(draft, news_text):
-    prompt = f"""你是一位严格的事实核查编辑。请对照【原始新闻素材】，审核【初稿】中每条新闻的事实准确性。
+def deepseek_factcheck(draft, news_text):
+    prompt = f"""你是严格的事实核查编辑。对照原始素材，找出初稿中不准确、夸大或推断过头的地方，输出修正后的完整初稿。
 
-你的任务：
-1. 逐条检查初稿中的每个事实陈述是否有原始素材支持
-2. 找出推断性、夸大或不准确的表述
-3. 发现易混淆的错误（例如"有漏洞"vs"能发现漏洞"、"被起诉"vs"起诉别人"）
-4. 输出修正后的初稿
+## 检查重点
+1. 每条核心事实是否在原文中有对应
+2. 是否混淆"有漏洞"和"能发现漏洞"这类关键词
+3. 具体数据是否和原文一致
+4. 是否把"可能"改成了"确定"
+5. 是否添加了原文没有的因果关系
 
-【修正原则】
-- 原始素材没有明确说的内容，要么删掉，要么改为"据悉""据报道"等模糊措辞
-- 具体数字如果和素材不一致，改成素材中的数字
-- 明显错误直接修正
-- 如果某条新闻整体不准确或信息不足，可以整条删掉
-- 保持原初稿的格式结构（总标题、引言、各条新闻、三句话总结）
+## 修改原则
+- 发现事实错误：直接改正
+- 发现夸大描述：改为准确措辞
+- 发现无法核实的：整条删除
 
-【原始新闻素材】
-{news_text[:8000]}
+直接输出修正后的完整初稿，保持原有格式。
 
-【初稿】
-{draft}
+---
 
-请直接输出修正后的完整初稿（保持纯文本格式，不要加说明或评论）。"""
+## 原始新闻素材
+{news_text[:12000]}
+
+---
+
+## 待核查初稿
+{draft}"""
 
     try:
         resp = requests.post(
-            "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 3500},
-            timeout=180,
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
+            timeout=120,
         )
         data = resp.json()
         if "choices" not in data:
-            print(f"豆包核查错误: {data}")
             return draft
-        result = data["choices"][0]["message"]["content"]
-        print(f"豆包事实核查完成 ({len(result)} 字)")
-        return result
+        corrected = data["choices"][0]["message"]["content"]
+        print(f"  事实核查完成 ({len(corrected)} 字)")
+        return corrected
     except Exception as e:
-        print(f"豆包核查失败: {e}，使用原初稿")
+        print(f"  事实核查失败: {e}")
         return draft
 
 
 def doubao_polish(draft):
-    prompt = f"""你是"鹏眼观天下"公众号的主编。请把已通过事实核查的初稿改写成面向普通读者的公众号文章。
+    prompt = f"""你是"鹏眼观天下"公众号主编。把已核查的初稿改写成面向科技小白的公众号文章。
 
-读者画像：普通人，上班族、大学生、宝妈、小老板，对科技感兴趣但不是从业者。
+## 最高原则：事实零改动
+- 初稿说的所有事实一字不能改
+- 初稿用的"据报道""可能"等措辞必须保留
+- 不能加原文没有的事情
 
-## 改写原则
+你可以做的：
+- 换更通俗的表达
+- 给专业名词加括号解释（如："Anthropic（做Claude的公司，ChatGPT最大对手）"）
+- 用生活化类比
+- 增强开头钩子（用初稿已有的事实制造悬念）
+- 保证内容充实（1500-2500字），不要删减事实细节
 
-### 严守事实底线
-- 绝对不要添加初稿中没有的事实、数据、人物、事件
-- 只做语言润色和结构优化
-- 如果某个表述不确定，宁可用"据报道""有消息称"等谨慎措辞
-
-### 内容要充实、有深度
-- **不要删减初稿中的事实细节**，完整保留每一个数据、人名、背景
-- 改写时把初稿的信息"展开讲透"，而不是浓缩精简
-- 每条新闻的正文保持 3-5 句话的体量，把事实讲清楚讲完整
-- 每条鹏眼点评保持 2-3 句话，有分析、有观点、有和普通人的关联
-- 结尾三句话总结要写得充实，每句 2-3 行，说清楚背景和意义
-- 文章整体字数目标：1500-2500 字
-
-### 面向小白
-- 每个专业名词/公司名第一次出现时，加一句大白话解释
-  示例："Anthropic（做Claude AI的那家公司，ChatGPT最大的对手）"
-- 用生活化类比解释复杂概念
-- 每条点评最后加一句"这和你有什么关系"
-
-### 开头钩子
-  引言用悬念或好奇心钩住读者，但要基于真实信息，不要夸张
-
-### 标题要求
-  - 平实但吸引人，不要"炸锅""震惊""疯了""核弹级"
-  - 标题必须准确反映内容，不能标题党
-
-### 语气
-- 像懂行朋友在聊天
-- 用"说白了""换句话说""你可以理解为"
-- 不要用"赋能""生态""闭环""底层逻辑""范式转移"
-- 不要emoji
-
-## 排版要求
-
-直接输出微信公众号兼容的HTML，所有样式内联。不要使用任何emoji。
+## 排版（微信公众号兼容HTML，内联样式，不要emoji）
 
 总标题：
 <p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
@@ -603,15 +663,15 @@ def doubao_polish(draft):
 
 每条新闻：
 <section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题——大白话，不要emoji</p>
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文（专业名词加括号解释）</p>
+<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题</p>
+<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文</p>
 <section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评：分析+和普通人的关系</p>
+<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评</p>
 </section>
 </section>
 <p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
 
-结尾要点：
+结尾：
 <section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
 <p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">今天的科技圈，三句话说清楚</p>
 <p style="font-size:15px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx</p>
@@ -619,16 +679,13 @@ def doubao_polish(draft):
 <p style="font-size:15px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
 </section>
 
-## 严格禁止
-- 添加初稿中没有的事实
-- 代码块、markdown语法
-- h1 h2 h3标签、div标签
-- 任何emoji
-- 免责声明和日历卡片（代码自动追加）
-- 正文中标注来源
-- 斜体
+## 禁止
+- 代码块、markdown加粗、h1/h2/h3、div标签、emoji、斜体
+- 添加初稿没有的事实
+- 正文标注新闻来源
+- 标题用"炸锅""震惊"等浮夸词
 
-核查后的初稿：
+初稿（已核查）：
 {draft}"""
 
     try:
@@ -640,13 +697,13 @@ def doubao_polish(draft):
         )
         data = resp.json()
         if "choices" not in data:
-            print(f"豆包润色错误: {data}")
+            print(f"豆包错误: {data}")
             return None
         result = data["choices"][0]["message"]["content"]
         print(f"豆包润色完成 ({len(result)} 字)")
         return result
     except Exception as e:
-        print(f"豆包润色失败: {e}")
+        print(f"豆包请求失败: {e}")
         return None
 
 
@@ -661,12 +718,22 @@ def clean_response(text):
     return text.strip()
 
 
-def extract_title(html_text):
+def extract_main_subtitle(html_text):
+    """从正文提取主副标题，用于封面"""
     match = re.search(r'font-size:22px[^>]*>(.*?)</p>', html_text)
     if match:
-        title = re.sub(r'<[^>]+>', '', match.group(1))
-        return title.strip()
-    return "科技行业每日速递"
+        title = re.sub(r'<[^>]+>', '', match.group(1)).strip()
+        # 尝试拆分为主副标题
+        for sep in ['，', '：', ' - ', '——', '：']:
+            if sep in title:
+                parts = title.split(sep, 1)
+                return parts[0].strip(), parts[1].strip()
+        # 没有分隔符，按长度拆分
+        if len(title) > 10:
+            mid = len(title) // 2
+            return title[:mid], title[mid:]
+        return title, "过去24小时精华"
+    return "全球科技圈", "过去24小时精华"
 
 
 def send_pushplus(title, content):
@@ -690,13 +757,11 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    print("=== 0/9 读取历史记录 ===")
+    print("=== 0/8 读取历史记录 ===")
     last_summary = read_last_summary()
     recent_quotes = read_recent_quotes()
-    if recent_quotes:
-        print(f"  已读取最近{len(recent_quotes)}条名言用于去重")
 
-    print("=== 1/9 抓取新闻 ===")
+    print("=== 1/8 抓取新闻 ===")
     print("  Google News...")
     google_articles = fetch_google_news()
     print("  NewsAPI...")
@@ -714,56 +779,62 @@ if __name__ == "__main__":
     else:
         print(f"  共 {len(all_articles)} 条新闻")
 
-        print("=== 2/9 抓取新闻全文 ===")
-        all_articles = enrich_articles_with_fulltext(all_articles, max_fetch=10)
+        print("=== 2/8 抓取新闻全文 ===")
+        all_articles = enrich_articles_with_fulltext(all_articles, max_fetch=12)
         news_text = "\n\n".join(all_articles)
 
-        print("=== 3/9 DeepSeek 生成初稿（保守模式）===")
-        draft, quote_text, quote_author = deepseek_draft(news_text, last_summary, recent_quotes)
+        print("=== 3/8 DeepSeek 生成初稿（严格模式） ===")
+        draft, quote_text, quote_author, topics = deepseek_draft(news_text, last_summary, recent_quotes)
 
         if draft:
-            print("=== 4/9 豆包独立事实核查 ===")
-            draft = doubao_factcheck(draft, news_text)
+            print("=== 4/8 事实核查 ===")
+            draft = deepseek_factcheck(draft, news_text)
 
-            print("=== 5/9 豆包润色+排版 ===")
+            print("=== 5/8 豆包润色+排版 ===")
             polished = doubao_polish(draft)
 
             if polished:
                 final = clean_response(polished)
             else:
-                print("  豆包润色失败，使用核查后初稿")
-                final = f"<p style='color:#999;font-size:12px;'>（本期为初稿版本，润色服务暂时不可用）</p>\n{draft}"
+                final = f"<p style='color:#999;font-size:12px;'>（初稿版本）</p>\n{draft}"
         else:
-            final = "<p>AI 摘要生成失败，请检查 DeepSeek API。</p>"
+            final = "<p>AI 摘要生成失败。</p>"
             quote_text = ""
             quote_author = ""
+            topics = []
 
-        print("=== 6/9 生成封面图 ===")
-        article_title = extract_title(final)
-        print(f"  封面主题: {article_title}")
-        # 先用 DeepSeek 根据今天的内容生成图像 prompt
-        image_prompt = generate_image_prompt(article_title, draft)
-        # 再用豆包按照这个 prompt 画图
-        cover_url = generate_cover_image(image_prompt)
+        # 生成封面图
+        print("=== 6/8 生成封面图 ===")
+        main_title, sub_title = extract_main_subtitle(final)
+        # 如果有标签就用，没有就用默认
+        if not topics:
+            topics = ["OpenAI动态", "AI竞争升级", "芯片与算力", "资本风向", "新技术落地"]
+        print(f"  主标题: {main_title} / {sub_title}")
+        print(f"  话题标签: {topics}")
+        cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
+        cover_url = None
+        if cover_path:
+            cover_url = commit_image_to_repo(cover_path)
         if cover_url:
             cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final
+            print("  封面图已插入文章开头")
+        else:
+            print("  封面图生成失败，跳过")
 
-        print("=== 7/9 生成日历卡片 ===")
-        if quote_text:
-            print(f"  今日名言: {quote_text}")
+        print("=== 7/8 生成日历卡片 ===")
         calendar = generate_calendar_card(quote_text, quote_author)
-
         final = final + calendar + DISCLAIMER
 
-        print("=== 8/9 推送微信 ===")
+        print("=== 8/8 推送微信 ===")
         send_pushplus(title, final)
 
-        print("=== 9/9 保存历史记录 ===")
+        # 保存历史
+        print("=== 保存历史数据 ===")
         today_summary = extract_summary_from_html(final)
         if today_summary:
             save_summary(today_summary)
         if quote_text:
-            save_recent_quote(quote_text)
+            save_recent_quote(quote_text, quote_author)
 
     print("全部完成!")

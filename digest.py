@@ -238,15 +238,40 @@ def commit_image_to_repo(image_path):
     try:
         subprocess.run(["git", "config", "user.name", "Tech Daily Bot"], check=False)
         subprocess.run(["git", "config", "user.email", "bot@tech-daily.com"], check=False)
-        subprocess.run(["git", "add", image_path], check=False)
-        # 使用时间戳作为提交信息，避免重复
+
+        # 先拉取最新代码，避免冲突
+        pull_result = subprocess.run(["git", "pull", "--rebase"], capture_output=True, text=True)
+        if pull_result.returncode != 0:
+            print(f"  git pull 失败: {pull_result.stderr}")
+
+        # 添加图片
+        add_result = subprocess.run(["git", "add", image_path], capture_output=True, text=True)
+        if add_result.returncode != 0:
+            print(f"  git add 失败: {add_result.stderr}")
+            return None
+
+        # 提交
         timestamp = datetime.now(BJT).strftime("%Y-%m-%d %H:%M")
-        subprocess.run(["git", "commit", "-m", f"auto: cover image {timestamp}"], check=False)
-        subprocess.run(["git", "push"], check=False)
-        # 加上时间戳参数避免CDN缓存
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", f"auto: cover image {timestamp}"],
+            capture_output=True, text=True
+        )
+        if commit_result.returncode != 0:
+            print(f"  git commit 结果: {commit_result.stdout} {commit_result.stderr}")
+            # 可能是没变化（nothing to commit），也算成功
+            if "nothing to commit" not in commit_result.stdout:
+                return None
+
+        # 推送
+        push_result = subprocess.run(["git", "push"], capture_output=True, text=True)
+        if push_result.returncode != 0:
+            print(f"  git push 失败: {push_result.stderr}")
+            return None
+
+        print(f"  git push 成功")
         ts = int(datetime.now().timestamp())
         url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{image_path}?t={ts}"
-        print(f"  图片已上传: {url}")
+        print(f"  图片URL: {url}")
         return url
     except Exception as e:
         print(f"  图片上传失败: {e}")
@@ -326,12 +351,9 @@ def generate_calendar_card(quote_text="", quote_author=""):
 
 
 DISCLAIMER = """
-<section style="margin-top:20px;padding:14px 16px;background:#f9f9f9;border-radius:6px;">
-<p style="font-size:12px;color:#999;line-height:1.8;margin:0;">
-<span style="color:#888;font-weight:bold;">免责声明</span><br/>
-本文素材来源于路透社、彭博社、TechCrunch、The Verge、Hacker News、CNBC等国际主流科技媒体及网络公开报道，经AI辅助整理并由人工编辑审核。本文不代表任何立场，不构成任何投资建议。如有疏漏，欢迎留言指正。
+<p style="font-size:12px;color:#9a9a9a;line-height:1.8;margin:32px 0 0;text-align:justify;">
+素材来源于路透社、彭博社、TechCrunch、The Verge、Hacker News、CNBC 等国际主流科技媒体及网络公开报道，经 AI 辅助整理并由人工编辑审核。本文不代表任何立场，不构成任何投资建议。如有疏漏，欢迎留言指正。
 </p>
-</section>
 """
 
 
@@ -359,9 +381,25 @@ def save_summary(summary_text):
         print(f"  保存总结失败: {e}")
 
 def extract_summary_from_html(html_text):
+    # 旧排版：从"三句话说清楚"块里提取（兼容保留）
     match = re.search(r'三句话说清楚</p>(.*?)</section>', html_text, re.DOTALL)
     if match:
         return re.sub(r'<[^>]+>', '', match.group(1)).strip()
+
+    # 新排版（猫笔刀风格）：没有总结块，提取文末倒数几段作为"昨日要点"
+    # 先去掉"（完）"以及它之后的内容
+    text = re.sub(r'<p[^>]*>（完）</p>.*', '', html_text, flags=re.DOTALL)
+    # 取所有正文段落
+    paragraphs = re.findall(r'<p[^>]*font-size:\s*16px[^>]*>(.*?)</p>', text, re.DOTALL)
+    # 去掉空段和分节符（省略号）
+    clean = []
+    for p in paragraphs:
+        plain = re.sub(r'<[^>]+>', '', p).strip()
+        if plain and '……' not in plain and len(plain) > 10:
+            clean.append(plain)
+    # 取最后 3-4 段作为"昨天结尾提到的"，给明天连续追踪用
+    if clean:
+        return "\n".join(clean[-4:])
     return ""
 
 
@@ -504,7 +542,7 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
 {chr(10).join("- " + q for q in recent_quotes)}
 """
 
-    prompt = f"""你是一位资深且极其严谨的科技记者。请根据以下新闻素材整理科技日报初稿。
+    prompt = f"""你是一位资深且极其严谨的科技记者，同时你的行文风格师承财经公众号"猫笔刀"。请根据以下新闻素材整理科技日报初稿。
 
 时间窗口：{date_range}
 {continuity}
@@ -523,30 +561,81 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
    - "计划" vs "已经"
 4. **数据必须谨慎**——具体金额、百分比必须在原文找到对应
 
-## 写作要求
+## 文风要求：猫笔刀式白话科技评论
 
-1. 筛选 5-7 条有全文摘要支持的重要新闻
+**核心气质**：像一个懂行的朋友，坐在你对面一边喝茶一边给你讲今天科技圈发生了啥。不是新闻联播，也不是学术报告。
+
+**六条硬性规则**：
+
+1. **段落要短**——每个自然段不超过2句话。宁可多分段，不要写长段。
+2. **句子要白**——能用大白话就不用书面语。删掉所有"毫无疑问""值得关注""标志着""本质是""预示着""综上所述"这种学生腔。
+3. **有观点就亮**——点评不单独开"点评"模块，直接融进叙述里。看完事实紧接着说"其实这事儿是……"、"说白了就是……"、"你以为A，其实是B"。
+4. **类比讲人话**——遇到专业概念，给一个生活化的比方。比如"算法稳定币"→"用另一个币的价格来托住这个币"；"AI基础设施"→"AI要跑起来背后要烧的那套东西"。
+5. **用 `……` 分节**——不要用小标题切块。每说完一条新闻/一个话题，空一行打六个省略号（……），再进入下一段。
+6. **结尾要有金句**——最后一句话要能让人停一下，有一点回味。不要写"让我们拭目以待""未来可期"这种套话。
+
+## 结构要求
+
+1. 筛选 3-5 条最重要的新闻（不用凑够5-7条，宁缺毋滥）
 2. 同一事件合并
-3. 按重要性排列
-4. 每条包含：
-   - 标题（事实陈述型，不夸张）
-   - 事实描述（3-5句话，基于全文摘要展开细节）
-   - 点评（2-3句话，有观点有分析，告诉读者和普通人的关系）
-5. 不要使用任何emoji图标
-6. 正文中不要写"据XX报道"，直接陈述事实
-7. 开头写总标题（平实但吸引人，不要"炸锅""震惊""疯了"这类词）
-8. 开头写1-2句引言概括今天核心看点
-9. 结尾三句话总结：每句 2-3 行
-10. 最后单独一行输出名人名言，格式：今日名言：内容——作者（身份）
+3. 整篇文章像一条线讲下来，不要割裂成独立新闻块
+4. 不要给每条新闻起小标题——直接用"先说A这件事""再看B这边""还有第三件事顺便说一下"这种口语过渡
+5. 开头2-3段短句，抛出今天最值得关注的两三件事，制造一点悬念
+6. 每条新闻：事实描述（3-5个短段）→ 紧接着的观点分析（2-4个短段，融入叙述，不分开）
+7. 全文用 `……` 分隔不同话题块
+8. 结尾1-2段收束全篇，给一句有回味的金句
+9. 不要写"三句话说清楚"这种总结框
+10. 最后另起一行输出名人名言，格式：今日名言：内容——作者（身份）
 
 **额外输出：为今天的简报生成 5 个短话题标签**（4-8个汉字），格式：
 今日标签：标签1 | 标签2 | 标签3 | 标签4 | 标签5
 
 标签要求：每个标签精炼概括一条新闻的核心，便于读者一眼看懂。
 
+## 禁止事项
+
+- 禁止使用任何 emoji 图标
+- 禁止写"据XX报道"，直接陈述事实
+- 禁止"炸锅""震惊""疯了""刷屏""沸腾"这类浮夸词
+- 禁止"毫无疑问""显而易见""不言而喻"这类判断词
+- 禁止"首先""其次""最后""综上所述"这种论文式连接词
+- 禁止在结尾加"让我们拭目以待""未来可期""敬请期待"
+
+## 字数目标
+
+全文1500-2200字。字数少不怕，怕的是凑字数出现"废话段"。
+
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
-用纯文本输出，不要HTML标签，不要emoji。
+用纯文本输出，不要HTML标签，不要emoji，不要markdown加粗。
+
+## 风格示例（仅供感受语气，内容无关）
+
+---
+过去24小时，科技圈连着抛出两件大事。
+
+一件是库克宣布交棒，这是苹果2011年以来第一次换CEO。
+
+另一件是亚马逊计划再给Anthropic砸250亿美元。
+
+这两件事看起来一个在硬件一个在AI，但放一起看，其实是同一个故事的两面。
+
+……
+
+先说亚马逊这一刀。
+
+250亿美元比很多国家一年的GDP还多。很多人第一反应是亚马逊钱多烧的慌。
+
+其实完全不是。这笔钱的战略意义远大于财务回报，说白了就是在抢下一代AI的入场券。
+
+打个比方你就明白了。
+
+十几年前移动互联网刚起来的时候，巨头们抢的是什么？抢通信基站、抢数据中心，抢的都是上游入口。谁卡住上游谁就能收过路费。
+
+现在云巨头和大模型公司深度绑定，干的是一模一样的事。
+---
+
+感受一下上面这种节奏：短段、口语、有观点、用类比、不端着。
 
 新闻素材：
 {news_text}"""
@@ -637,50 +726,67 @@ def deepseek_factcheck(draft, news_text):
 
 
 def doubao_polish(draft):
-    prompt = f"""你是"鹏眼观天下"公众号主编。把已核查的初稿改写成面向科技小白的公众号文章。
+    prompt = f"""你是"鹏眼观天下"公众号主编，本账号的文风师承财经公众号"猫笔刀"：短段、白话、不端着。把已核查的初稿改写成一篇可以直接发到公众号的 HTML 文章。
 
 ## 最高原则：事实零改动
 - 初稿说的所有事实一字不能改
 - 初稿用的"据报道""可能"等措辞必须保留
 - 不能加原文没有的事情
+- 初稿的段落顺序和叙述逻辑尽量保持
 
-你可以做的：
-- 换更通俗的表达
-- 给专业名词加括号解释（如："Anthropic（做Claude的公司，ChatGPT最大对手）"）
-- 用生活化类比
-- 增强开头钩子（用初稿已有的事实制造悬念）
-- 保证内容充实（1500-2500字），不要删减事实细节
+## 你可以做的
+- 让口语更顺，砍掉任何残留的书面腔
+- 补充类比让小白也看得懂（但事实必须来自初稿）
+- 强化开头的悬念（用初稿已有的事实）
+- 给结尾金句再打磨一下让它更抓人
+- 对专业名词加一句大白话解释，而不是加括号注释
 
-## 排版（微信公众号兼容HTML，内联样式，不要emoji）
+## 排版铁律（猫笔刀风格）
 
-总标题：
-<p style="font-size:22px;font-weight:900;color:#1a1a1a;line-height:1.4;margin:0 0 20px;">总标题</p>
+**一、绝对不要出现的东西**：
+- 不要给新闻起小标题（蓝色标题、彩色标题都不行）
+- 不要用蓝色引用框包"鹏眼点评"或任何其他内容
+- 不要用任何背景色块、边框、圆角框来切分内容
+- 不要用"三句话说清楚"这种总结框
+- 不要 emoji、不要 markdown 加粗、不要 h1/h2/h3 标签
+- 不要把正文分栏、分模块
 
-引言：
-<section style="background:#f0f7ff;padding:14px 16px;border-left:4px solid #1a73e8;margin-bottom:28px;">
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0;">引言</p>
-</section>
+**二、只允许使用的 HTML 元素**：
+- `<p>` 段落（正文）
+- `<p>` 段落（居中的省略号分节符）
+- `<p>` 段落（总标题）
+- `<p>` 段落（文末的"（完）"）
 
-每条新闻：
-<section style="margin-bottom:8px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:0 0 10px;">标题</p>
-<p style="font-size:16px;color:#333;line-height:1.9;margin:0 0 10px;">正文</p>
-<section style="background:#f0f7ff;padding:10px 14px;border-radius:6px;margin:0 0 8px;">
-<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">鹏眼点评</p>
-</section>
-</section>
-<p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>
+**三、排版模板**：
 
-结尾：
-<section style="background:#e8f0fe;padding:18px;border-radius:8px;margin-top:28px;">
-<p style="font-size:18px;font-weight:bold;color:#1a73e8;margin:0 0 12px;">今天的科技圈，三句话说清楚</p>
-<p style="font-size:15px;color:#555;line-height:1.9;margin:0 0 10px;">1. 最重要的一件事：xxxx</p>
-<p style="font-size:15px;color:#555;line-height:1.9;margin:0 0 10px;">2. 钱往哪儿流：xxxx</p>
-<p style="font-size:15px;color:#555;line-height:1.9;margin:0;">3. 接下来看什么：xxxx</p>
-</section>
+总标题（黑色、加粗、不要蓝色）：
+<p style="font-size:20px;font-weight:700;color:#2c2c2c;line-height:1.5;margin:0 0 24px;letter-spacing:0.3px;">总标题</p>
 
-## 禁止
-- 代码块、markdown加粗、h1/h2/h3、div标签、emoji、斜体
+正文段落（每段1-2句话，不要长段）：
+<p style="font-size:16px;color:#3e3e3e;line-height:1.9;margin:0 0 18px;letter-spacing:0.5px;text-align:justify;">段落内容</p>
+
+分节符（每说完一个话题用一个，全文用3-5个）：
+<p style="text-align:center;color:#b0b0b0;font-size:16px;letter-spacing:6px;margin:28px 0 22px;line-height:1;">……</p>
+
+文末"（完）"：
+<p style="font-size:15px;color:#9a9a9a;margin:32px 0 0;">（完）</p>
+
+**四、结构要求**：
+
+1. 总标题一行，紧接着空18-24px
+2. 开头2-4个短段，抛出今天的事（不要引言框，就直接写）
+3. 分节符 `……`
+4. 每条新闻：若干短段事实 + 若干短段观点，全部是纯 `<p>` 段落，不要任何框
+5. 每条新闻结束用 `……` 分节符
+6. 结尾2-4段收束全文，给金句
+7. 最后单独一个 `<p>（完）</p>`
+
+## 禁止清单（再强调一次）
+
+- 代码块、markdown加粗、h1/h2/h3、div 标签、section 标签、emoji、斜体
+- 蓝色小标题、蓝色引用框、背景色块
+- "鹏眼点评："这类栏目化标识
+- "三句话说清楚"总结框
 - 添加初稿没有的事实
 - 正文标注新闻来源
 - 标题用"炸锅""震惊"等浮夸词
@@ -708,19 +814,44 @@ def doubao_polish(draft):
 
 
 def clean_response(text):
+    # 去掉代码围栏
     text = re.sub(r'```html\s*', '', text)
     text = re.sub(r'```\s*$', '', text)
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'<h3[^>]*>(.*?)</h3>',
-        r'<p style="font-size:18px;font-weight:bold;color:#1a73e8;line-height:1.5;margin:20px 0 10px;">\1</p>', text)
-    text = re.sub(r'<hr[^>]*/?>',
-        '<p style="border-top:1px solid #eee;margin:24px 0;height:0;"></p>', text)
+    # markdown加粗 → 猫笔刀风格基本不用加粗，但若豆包偶尔写了，保留为纯文本
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    # 如果模型偶尔用了 h3（违反规定），兜底转成正文段落（不是蓝色标题）
+    text = re.sub(
+        r'<h[1-6][^>]*>(.*?)</h[1-6]>',
+        r'<p style="font-size:16px;color:#3e3e3e;line-height:1.9;margin:0 0 18px;letter-spacing:0.5px;">\1</p>',
+        text,
+    )
+    # 把 hr 转成细分割线（极少用，兜底）
+    text = re.sub(
+        r'<hr[^>]*/?>',
+        '<p style="text-align:center;color:#b0b0b0;font-size:16px;letter-spacing:6px;margin:28px 0 22px;line-height:1;">……</p>',
+        text,
+    )
+    # 兜底清理：如果模型违反规定用了 section 带背景色（蓝框），把 section 转成透明容器
+    text = re.sub(
+        r'<section[^>]*background:\s*#[ef0-9a-f]{3,6}[^>]*>',
+        '<section>',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # 兜底清理：如果模型用了 border-left 蓝色竖线，也清掉
+    text = re.sub(
+        r'<section[^>]*border-left:[^>]*>',
+        '<section>',
+        text,
+        flags=re.IGNORECASE,
+    )
     return text.strip()
 
 
 def extract_main_subtitle(html_text):
     """从正文提取主副标题，用于封面"""
-    match = re.search(r'font-size:22px[^>]*>(.*?)</p>', html_text)
+    # 兼容新旧两种字号：20px（新）和 22px（旧）
+    match = re.search(r'font-size:\s*(?:20|22)px[^>]*>(.*?)</p>', html_text)
     if match:
         title = re.sub(r'<[^>]+>', '', match.group(1)).strip()
         # 尝试拆分为主副标题

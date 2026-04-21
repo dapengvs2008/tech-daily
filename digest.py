@@ -521,6 +521,142 @@ def fetch_techcrunch_rss():
         return []
 
 
+# ===== AI 主题插图生成（豆包 Seedream 4.5） =====
+
+# 电影感底板：无论今天是什么主题，这些参数都保持一致，确保视觉风格统一
+CINEMATIC_BASE = (
+    "电影级画面质感，冷色调为主（深蓝、海军蓝、深夜色调），"
+    "局部暖色点缀（琥珀色/橙黄色灯光作为视觉锚点），"
+    "景深层次丰富：前景主体清晰，中景发光元素，远景虚化的城市天际线，"
+    "高对比度打光，体积光线，镜头光晕，赛博概念艺术风格，"
+    "细节精致，科技感但不卡通化，像好莱坞科幻片开场镜头，"
+    "写实摄影质感，8K超高清，电影比例 3:2 横版构图"
+)
+
+# 绝对不要出现的东西
+NEGATIVE_STYLE = (
+    "避免：卡通风格、幼稚可爱、Q版、矢量插画、粉色或紫色糖果色调、"
+    "多个机器人小人、聊天气泡、emoji表情、漫画、简笔画、2D扁平化、"
+    "文字或logo主导画面、拼贴风、学生习作感"
+)
+
+
+def generate_image_prompt(news_digest_text):
+    """调用 DeepSeek，根据今日新闻摘要，生成一条豆包图像模型可用的中文 prompt。
+
+    输入：简报全文（或前 1500 字）
+    输出：一条完整的中文电影感 prompt，可直接丢给豆包 Seedream
+    """
+    meta_prompt = f"""你是一位电影海报概念艺术总监。下面是今天的科技新闻简报。
+
+请从简报里**提取 2-3 个最具视觉冲击力的核心元素**，然后写一条中文 prompt，用于生成今日文章的主题插图。
+
+## 元素提取规则
+
+1. 优先选择有**具象视觉符号**的元素，如：
+   - 科技公司 logo（Apple 苹果标志、Amazon 橙色箭头、NVIDIA 绿色、Google 彩色、OpenAI 六角形等）
+   - 标志性产品（iPhone、Vision Pro、机器人、数据中心、芯片、服务器机架）
+   - 有象征意义的动作（握手=合作、交棒=传承、砸钱=投资、城市天际线=产业版图）
+2. **最多 3 个元素**，宁少勿多，避免画面杂乱
+3. 避免抽象概念（"资本流动""算力竞争"这种——除非能给出具象物化的表达，如"发光的金色数据流"）
+
+## Prompt 写作规则
+
+1. **开头点明核心场景**，比如："在深夜的数据中心里，两只发光的手正在握手"
+2. **中间展开元素细节**：每个元素用 1-2 句描述其在画面中的位置和形态
+3. **最后加上统一的画面风格参数**（我会自动拼接，你不用管）
+4. 全程中文，不要英文单词（除了科技公司英文名和产品名）
+5. 不要有文字或文案在画面里
+6. **控制在 120-180 字**
+
+## 输出格式
+
+直接输出 prompt 正文，不要任何解释、标题、前言、编号、引号。
+
+## 今日简报
+
+{news_digest_text[:1500]}"""
+
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": meta_prompt}],
+                "max_tokens": 500,
+                "temperature": 0.8,  # 创意类任务，稍微提高
+            },
+            timeout=60,
+        )
+        data = resp.json()
+        if "choices" not in data:
+            print(f"  图片 prompt 生成失败: {data}")
+            return None
+        core_prompt = data["choices"][0]["message"]["content"].strip()
+        # 清理可能的 markdown 残留
+        core_prompt = re.sub(r'^["""\'`]|["""\'`]$', '', core_prompt)
+        core_prompt = re.sub(r'```.*?```', '', core_prompt, flags=re.DOTALL).strip()
+        print(f"  核心 prompt: {core_prompt[:120]}...")
+
+        # 拼接电影感底板
+        full_prompt = f"{core_prompt}。{CINEMATIC_BASE}。{NEGATIVE_STYLE}"
+        return full_prompt
+    except Exception as e:
+        print(f"  图片 prompt 生成异常: {e}")
+        return None
+
+
+def generate_cover_with_doubao_image(prompt_text, output_path="cover.png"):
+    """调用豆包 Seedream 4.5 生成主题插图，保存为本地 PNG。
+
+    返回本地文件路径，失败返回 None。
+    """
+    if not prompt_text:
+        return None
+
+    try:
+        print(f"  正在请求豆包 Seedream 4.5...")
+        resp = requests.post(
+            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+            headers={
+                "Authorization": f"Bearer {DOUBAO_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "doubao-seedream-4-5-251128",
+                "prompt": prompt_text,
+                "size": "2K",              # 2K 足够公众号用，4K 更慢且费用高
+                "response_format": "url",  # 返回图片 URL
+                "watermark": False,        # 公众号用，不要水印
+            },
+            timeout=120,
+        )
+        data = resp.json()
+        if "data" not in data or not data["data"]:
+            print(f"  豆包图像返回异常: {data}")
+            return None
+
+        image_url = data["data"][0].get("url")
+        if not image_url:
+            print(f"  豆包图像 URL 为空: {data}")
+            return None
+
+        print(f"  豆包图像生成成功，正在下载...")
+        img_resp = requests.get(image_url, timeout=60)
+        if img_resp.status_code != 200:
+            print(f"  图像下载失败: HTTP {img_resp.status_code}")
+            return None
+
+        with open(output_path, "wb") as f:
+            f.write(img_resp.content)
+        print(f"  主题插图已保存: {output_path} ({len(img_resp.content) // 1024} KB)")
+        return output_path
+    except Exception as e:
+        print(f"  豆包图像生成异常: {e}")
+        return None
+
+
 def deepseek_draft(news_text, last_summary="", recent_quotes=None):
     start_time, end_time = get_time_range()
     date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
@@ -952,18 +1088,36 @@ if __name__ == "__main__":
             quote_author = ""
             topics = []
 
-        # 生成封面图
-        print("=== 6/8 生成封面图 ===")
+        # 生成主题插图（豆包 Seedream 4.5 AI 生图）
+        print("=== 6/8 生成主题插图（豆包 Seedream 4.5） ===")
         main_title, sub_title = extract_main_subtitle(final)
-        # 如果有标签就用，没有就用默认
         if not topics:
             topics = ["OpenAI动态", "AI竞争升级", "芯片与算力", "资本风向", "新技术落地"]
         print(f"  主标题: {main_title} / {sub_title}")
         print(f"  话题标签: {topics}")
-        cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
+
         cover_url = None
+        cover_path = None
+
+        # 步骤 6.1: 根据文章内容生成图片 prompt
+        print("  步骤 6.1: 生成图片 prompt...")
+        # 从 draft（已核查的纯文本初稿）提取视觉元素，而不是用 HTML 版本
+        image_prompt = generate_image_prompt(draft)
+
+        # 步骤 6.2: 调用豆包 Seedream 4.5 生图
+        if image_prompt:
+            print("  步骤 6.2: 豆包 Seedream 4.5 生图...")
+            cover_path = generate_cover_with_doubao_image(image_prompt, "cover.png")
+
+        # 步骤 6.3: 失败时兜底到旧的 HTML 渲染封面
+        if not cover_path:
+            print("  豆包生图失败，回退到 HTML 渲染封面...")
+            cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
+
+        # 步骤 6.4: 上传到 GitHub 拿 raw URL
         if cover_path:
             cover_url = commit_image_to_repo(cover_path)
+
         if cover_url:
             cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final

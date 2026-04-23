@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests playwright
+          pip install requests playwright lunar_python
           playwright install chromium
           playwright install-deps chromium
 

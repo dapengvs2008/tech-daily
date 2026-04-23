@@ -357,11 +357,7 @@ def generate_calendar_card(quote_text="", quote_author=""):
 <section style="background:{RED_MAIN};padding:1px;">
 <section style="background:{PAPER};">
 
-<section style="display:flex;justify-content:space-between;align-items:center;padding:7px 16px;background:{RED_BLOCK};">
-<p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{year}</p>
-<p style="font-size:12px;color:#fff;font-weight:700;letter-spacing:2px;margin:0;text-align:center;flex:1;">鹏眼观天下</p>
-<p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{month_cn}</p>
-</section>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{RED_BLOCK};border-collapse:collapse;"><tr><td height="24" width="25%" style="padding:0 0 0 16px;line-height:24px;vertical-align:middle;text-align:left;font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;">{year}</td><td height="24" width="50%" style="line-height:24px;vertical-align:middle;text-align:center;font-size:12px;color:#fff;font-weight:700;letter-spacing:2px;">鹏眼观天下</td><td height="24" width="25%" style="padding:0 16px 0 0;line-height:24px;vertical-align:middle;text-align:right;font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;">{month_cn}</td></tr></table>
 
 <section style="padding:4px 20px 6px;">
 <section style="display:flex;align-items:flex-start;gap:2px;">
@@ -393,10 +389,7 @@ def generate_calendar_card(quote_text="", quote_author=""):
 <p style="font-size:12px;color:#3e3e3e;font-weight:500;text-align:right;margin:0;">—— {quote_author}</p>
 </section>
 
-<section style="display:flex;justify-content:space-between;align-items:center;padding:1px 16px;background:{RED_BLOCK};">
-<p style="font-size:9px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">全球视野</p>
-<p style="font-size:9px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">科技洞察</p>
-</section>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{RED_BLOCK};border-collapse:collapse;"><tr><td height="12" width="50%" style="padding:0 0 0 16px;line-height:12px;vertical-align:middle;text-align:left;font-size:8px;color:#fff;font-weight:600;letter-spacing:1px;">全球视野</td><td height="12" width="50%" style="padding:0 16px 0 0;line-height:12px;vertical-align:middle;text-align:right;font-size:8px;color:#fff;font-weight:600;letter-spacing:1px;">科技洞察</td></tr></table>
 
 </section>
 </section>

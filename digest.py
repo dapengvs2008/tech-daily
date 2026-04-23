@@ -393,9 +393,9 @@ def generate_calendar_card(quote_text="", quote_author=""):
 <p style="font-size:12px;color:#3e3e3e;font-weight:500;text-align:right;margin:0;">—— {quote_author}</p>
 </section>
 
-<section style="display:flex;justify-content:space-between;align-items:center;padding:3px 16px;background:{RED_BLOCK};">
-<p style="font-size:10px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">全球视野</p>
-<p style="font-size:10px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">科技洞察</p>
+<section style="display:flex;justify-content:space-between;align-items:center;padding:1px 16px;background:{RED_BLOCK};">
+<p style="font-size:9px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">全球视野</p>
+<p style="font-size:9px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">科技洞察</p>
 </section>
 
 </section>

@@ -307,13 +307,29 @@ def save_recent_quote(quote_text, quote_author):
         print(f"  保存名言失败: {e}")
 
 
+def _get_lunar_text(dt):
+    """获取农历文字：'丙午年 · 马年 · 农历三月初七'。失败时返回空字符串。"""
+    try:
+        from lunar_python import Solar
+        s = Solar.fromYmd(dt.year, dt.month, dt.day)
+        l = s.getLunar()
+        return f"{l.getYearInGanZhi()}年 · {l.getYearShengXiao()}年 · 农历{l.getMonthInChinese()}月{l.getDayInChinese()}"
+    except Exception as e:
+        print(f"  农历计算失败（非致命）: {e}")
+        return ""
+
+
 def generate_calendar_card(quote_text="", quote_author=""):
     now = datetime.now(BJT)
     year = now.strftime("%Y")
-    month_num = now.month
-    month_en = now.strftime("%b").upper()
-    day = now.strftime("%d")
+    month_cn_map = {1:"一月",2:"二月",3:"三月",4:"四月",5:"五月",6:"六月",
+                    7:"七月",8:"八月",9:"九月",10:"十月",11:"十一月",12:"十二月"}
+    month_cn = month_cn_map[now.month]
+    month_en = now.strftime("%b") + "."  # Apr.
+    day = now.strftime("%d").lstrip("0") or "0"
     weekday = WEEKDAY_CN[now.weekday()]
+    lunar_text = _get_lunar_text(now)
+
     random.seed(now.strftime("%Y%m%d"))
     yi = random.choice(YI_OPTIONS)
     ji = random.choice(JI_OPTIONS)
@@ -321,29 +337,69 @@ def generate_calendar_card(quote_text="", quote_author=""):
         quote_text = "预测未来的最好方式，就是去创造它。"
         quote_author = "艾伦·凯（计算机科学家）"
 
+    # 颜色体系
+    RED_MAIN = "#c0392b"   # 双线边框色
+    RED_BLOCK = "#a02820"  # 顶部/底部红块填充色（稍深一档）
+    PAPER = "#faf6ee"      # 米白纸底
+
+    # 农历行（如果农历库不可用，这一行隐藏）
+    lunar_html = ""
+    if lunar_text:
+        lunar_html = f'<p style="text-align:center;font-size:10px;color:#3e3e3e;font-weight:500;letter-spacing:1px;margin:0 0 14px;">{lunar_text}</p>'
+
+    # 构造 HTML（微信兼容：全部 <section>/<p> + 内联样式）
+    # 结构：wrap → outer-red → inner-gap → inner-red → content → 顶部红块/正文/底部红块
     return f"""
-<section style="margin:32px auto 0;max-width:300px;">
-<section style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e8e8e8;">
-<section style="background:#c0392b;padding:10px 18px;display:flex;justify-content:space-between;align-items:center;">
-<p style="font-size:13px;font-weight:700;color:#fff;letter-spacing:2px;margin:0;">鹏眼观天下</p>
-<p style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.8);margin:0;">{month_num}月 {month_en}</p>
+<section style="margin:32px auto 0;max-width:290px;">
+<section style="background:{PAPER};padding:10px;box-sizing:border-box;box-shadow:0 2px 6px rgba(0,0,0,0.06),0 10px 30px rgba(0,0,0,0.1);">
+<section style="background:{RED_MAIN};padding:3px;">
+<section style="background:{PAPER};padding:5px;">
+<section style="background:{RED_MAIN};padding:1px;">
+<section style="background:{PAPER};">
+
+<section style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:{RED_BLOCK};">
+<p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{year}</p>
+<p style="font-size:12px;color:#fff;font-weight:700;letter-spacing:2px;margin:0;text-align:center;flex:1;">鹏眼观天下</p>
+<p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{month_cn}</p>
 </section>
-<section style="padding:28px 18px 20px;text-align:center;background:#fff;">
-<p style="font-size:12px;color:#999;letter-spacing:4px;margin:0 0 4px;">{year}</p>
-<p style="font-size:64px;font-weight:900;color:#c0392b;line-height:1;margin:4px 0 8px;font-family:Georgia,serif;">{day}</p>
-<p style="font-size:14px;color:#666;letter-spacing:6px;margin:0 0 16px;">{weekday}</p>
-<section style="display:flex;justify-content:center;gap:20px;margin-bottom:0;">
-<p style="font-size:12px;color:#666;margin:0;"><span style="font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;background:#fef0f0;color:#c0392b;">宜</span> {yi}</p>
-<p style="font-size:12px;color:#666;margin:0;"><span style="font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;background:#f0f0f0;color:#999;">忌</span> {ji}</p>
+
+<section style="padding:10px 20px 8px;">
+<section style="display:flex;align-items:flex-start;gap:2px;">
+<span style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-style:italic;color:{RED_MAIN};font-weight:400;margin-top:14px;line-height:1;">{month_en}</span>
+<span style="font-family:Georgia,serif;font-size:22px;color:{RED_MAIN};font-weight:300;margin-top:14px;margin-left:2px;margin-right:4px;line-height:1;">/</span>
+<span style="font-family:Georgia,'Times New Roman',serif;font-size:96px;font-weight:900;color:{RED_MAIN};line-height:0.92;letter-spacing:-4px;">{day}</span>
+</section>
+<p style="text-align:center;font-size:17px;font-weight:700;color:#2c2c2c;letter-spacing:8px;margin:6px 0 4px;">{weekday}</p>
+{lunar_html}
+</section>
+
+<section style="height:1px;background:{RED_MAIN};margin:0 16px;"></section>
+
+<section style="display:flex;justify-content:center;gap:22px;padding:14px 12px;">
+<p style="display:flex;align-items:center;gap:6px;font-size:13px;color:#2c2c2c;font-weight:600;margin:0;">
+<span style="display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;background:{RED_MAIN};">宜</span>
+{yi}
+</p>
+<p style="display:flex;align-items:center;gap:6px;font-size:13px;color:#2c2c2c;font-weight:600;margin:0;">
+<span style="display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;background:#2c2c2c;">忌</span>
+{ji}
+</p>
+</section>
+
+<section style="height:1px;background:{RED_MAIN};margin:0 16px;"></section>
+
+<section style="padding:18px 22px 22px;">
+<p style="font-size:13px;color:#2c2c2c;line-height:1.9;margin:0 0 14px;text-align:justify;">"{quote_text}"</p>
+<p style="font-size:12px;color:#3e3e3e;font-weight:500;text-align:right;margin:0;">—— {quote_author}</p>
+</section>
+
+<section style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:{RED_BLOCK};">
+<p style="font-size:12px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">全球视野</p>
+<p style="font-size:12px;color:#fff;font-weight:600;letter-spacing:1px;margin:0;">科技洞察</p>
+</section>
+
 </section>
 </section>
-<section style="border-top:1px solid #f0f0f0;padding:18px 18px;background:#fafafa;">
-<p style="font-size:13px;color:#333;line-height:1.8;text-align:center;margin:0 0 8px;">"{quote_text}"</p>
-<p style="font-size:11px;color:#666;text-align:center;margin:0;">—— {quote_author}</p>
-</section>
-<section style="padding:8px 18px;display:flex;justify-content:space-between;font-size:10px;color:#999;">
-<p style="margin:0;">鹏眼观天下</p>
-<p style="margin:0;">全球视野 / 科技洞察</p>
 </section>
 </section>
 </section>
@@ -712,21 +768,54 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
 
 ## 结构要求
 
-1. 筛选 3-5 条最重要的新闻（不用凑够5-7条，宁缺毋滥）
+1. 筛选 3-5 条最重要的新闻（**强制最少 3 条，避免文章单薄**；不用凑够5-7条，宁缺毋滥但也不能只有 2 条）
 2. 同一事件合并
 3. 整篇文章像一条线讲下来，不要割裂成独立新闻块
 4. 不要给每条新闻起小标题——直接用"先说A这件事""再看B这边""还有第三件事顺便说一下"这种口语过渡
-5. 开头2-3段短句，抛出今天最值得关注的两三件事，制造一点悬念
-6. 每条新闻：事实描述（3-5个短段）→ 紧接着的观点分析（2-4个短段，融入叙述，不分开）
-7. 全文用 `· · · · · ·` 分隔不同话题块
-8. 结尾1-2段收束全篇，给一句有回味的金句
-9. 不要写"三句话说清楚"这种总结框
-10. 最后另起一行输出名人名言，格式：今日名言：内容——作者（身份）
+
+### 标题与首段的关系（重要）
+
+5. **标题和首段绝对不能复读。** 标题说了"围绕效率"，首段就不能再说"今天都围绕效率"——读者会觉得在绕圈子。
+6. **首段必须从一个具体事实、场景或数字切入**，而不是先抛宏大结论。做法有三种任选：
+   - **具体事实型**：直接甩出最炸的一条新闻的核心数字或动作。示例："SpaceX 昨晚砸了 600 亿美元，买下一家连 VC 都没见过的 AI 公司。"
+   - **场景型**：像电影镜头一样切入。示例："昨天晚上硅谷有两家公司没睡。"
+   - **对比型**：把今天的事和大家熟悉的事做反差。示例："一家 5000 人的公司，把一家十几万人的巨头逼到了墙角。"
+7. **第二、三段再展开"今天这几件事有个共同点"的宏观判断**，让标题在这里才被暗暗揭晓。读者读到时是"哦原来是这样"的恍然大悟感，而不是"你这不刚说过吗"的冗余感。
+
+### 其他结构规则
+
+8. 每条新闻：事实描述（3-5个短段）→ 紧接着的观点分析（2-4个短段，融入叙述，不分开）
+9. 全文用 `······` 分隔不同话题块（顶左格六点）
+10. 结尾1-2段收束全篇，给一句有回味的金句
+11. **文末必须输出"（完）"单独一行**——这是本栏目的签名式收尾，不能省略
+12. 不要写"三句话说清楚"这种总结框
+13. 最后另起一行输出名人名言，格式：今日名言：内容——作者（身份）
 
 **额外输出：为今天的简报生成 5 个短话题标签**（4-8个汉字），格式：
 今日标签：标签1 | 标签2 | 标签3 | 标签4 | 标签5
 
 标签要求：每个标签精炼概括一条新闻的核心，便于读者一眼看懂。
+
+## 字数要求（硬性下限）
+
+**全文必须达到 1800 字以上**（不含名言和标签），理想区间 1800-2200 字。
+
+这是硬性要求，不是建议。之前有几版出现过"宁缺勿滥"导致整篇只有 800 字的情况，这种短篇不符合公众号定位。
+
+### 新闻少怎么办？（正确的展开方式）
+
+如果今天值得写的新闻只有 2-3 件，**不是减少文字**，而是**把每件事写透**：
+
+每件事可以从这几个角度展开（选 3-4 个即可达到足够字数）：
+1. **事件陈述**：发生了什么，具体数字、主角、时间（2-3段）
+2. **背景交代**：这件事之前行业里发生过什么，为什么这时点爆出来（2-3段）
+3. **影响分析**：对谁有影响，影响几时见效（2-4段）
+4. **类比释义**：用一个生活化比方帮读者理解（1-2段）
+5. **历史对照**：类似的事以前发生过吗，上次是什么结果（可选，1-2段）
+6. **观点收束**：说白了这事儿意味着什么（1-2段）
+
+**禁止**为了凑字数写废话段、重复已说过的话、加"值得关注"这种虚词。
+**鼓励**把每个观点讲具体、给类比、举小例子。
 
 ## 禁止事项
 
@@ -736,10 +825,9 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
 - 禁止"毫无疑问""显而易见""不言而喻"这类判断词
 - 禁止"首先""其次""最后""综上所述"这种论文式连接词
 - 禁止在结尾加"让我们拭目以待""未来可期""敬请期待"
+- **禁止编造原文没有的媒体来源**（例如原文里没有《洛杉矶时报》，你就不能说"洛杉矶时报报道"）
+- **禁止把"计划/有权/可能"写成"已经/拿下/完成"**——这是最严重的事实错误
 
-## 字数目标
-
-全文1500-2200字。字数少不怕，怕的是凑字数出现"废话段"。
 
 来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
 
@@ -780,7 +868,7 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4500},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
             timeout=120,
         )
         data = resp.json()
@@ -819,19 +907,59 @@ def deepseek_draft(news_text, last_summary="", recent_quotes=None):
 def deepseek_factcheck(draft, news_text):
     prompt = f"""你是严格的事实核查编辑。对照原始素材，找出初稿中不准确、夸大或推断过头的地方，输出修正后的完整初稿。
 
-## 检查重点
-1. 每条核心事实是否在原文中有对应
-2. 是否混淆"有漏洞"和"能发现漏洞"这类关键词
-3. 具体数据是否和原文一致
-4. 是否把"可能"改成了"确定"
-5. 是否添加了原文没有的因果关系
+## 七条红牌检查清单（必须逐条过）
+
+### 红牌 1：计划 vs 已经（最严重）
+文中每一个动词都要检查。原文说"有权""可能""计划""考虑"，初稿不能写成"已经""拿下""完成""收购了"。
+示例：
+- 原文"SpaceX 获得了以 600 亿美元收购 Cursor 的权利" → 初稿写"SpaceX 拿下了这家公司" ❌
+- 正确改法：改成"SpaceX 获得了收购选择权"或"SpaceX 有权在今年晚些时候收购"
+- 原文"考虑收购" → 初稿写"已收购" ❌
+
+### 红牌 2：媒体来源真实性（严重）
+初稿里每出现一个具体媒体名（《纽约时报》《华尔街日报》《洛杉矶时报》《彭博社》等），**必须在原始素材里找到匹配**。找不到的一律删除或改写为"据报道"。
+示例：
+- 原始素材里只有纽约时报的引用，但初稿写"《洛杉矶时报》此前也提到" → 这是来源幻觉 ❌
+- 改法：删除这个来源，或改写为"此前也有报道指出"
+
+### 红牌 3：主体张冠李戴
+每个类比、引用、挤压关系，主体对象不能错。特别小心 A、B、C 三方故事里谁在挤压谁、谁在给谁压力。
+示例：
+- 原文"Cursor 被 Anthropic 的编程工具挤压" → 初稿误写"Anthropic 给谷歌带来压力" ❌（移花接木）
+- 检查每个"对谁形成压力""逼谁怎么样"的表述，主体必须可追溯
+
+### 红牌 4：数字归属和精度
+员工数、估值、金额、百分比等具体数字：
+- 必须在原始素材里找到对应
+- 如果原始素材里有"约""大约""估计"等限定词，初稿也必须保留
+- 不同数据源有不同估计时，不能直接取最大值
+示例：
+- 原文"Tracxn 估计约 5000 人，其他数据源估计 2500-3000 人" → 初稿写"总共只有大约 5000 名员工" ⚠️ 应改为"据第三方数据估计在 3000-5000 人之间"或"据 XX 数据约 5000 人"
+
+### 红牌 5：因果关系推断
+初稿是否添加了原文没有的因果推断？
+示例：
+- 原文说"SpaceX 获得收购权" + "马斯克承认 xAI 编程能力落后" → 初稿写"这笔交易跳过了 VC 流程" ❌（原文没这么说，实际 Cursor 还在和 VC 谈融资）
+
+### 红牌 6：时态和数量模糊词
+初稿有没有把模糊词改成了精确词？
+- "几轮融资" ← 不能改成 "五轮融资"
+- "最近几周" ← 不能改成 "上周"
+- "大量员工" ← 不能改成 "数千员工"
+
+### 红牌 7：引号里的话
+初稿如果给人物加了引号，引号里的内容必须一字不差地在原始素材里出现过。
 
 ## 修改原则
-- 发现事实错误：直接改正
-- 发现夸大描述：改为准确措辞
-- 发现无法核实的：整条删除
+- 发现红牌错误：**直接改正**为准确措辞
+- 发现夸大描述：**改为谨慎表述**（加"据报道""约""可能""计划"等限定词）
+- 发现**完全无法核实**的内容：**整段删除**（不要保留）
+- 修改后**保持字数不要大幅下降**——如果删掉一段，需要在其他地方展开对应内容
+- 保持文风和段落结构不变
 
-直接输出修正后的完整初稿，保持原有格式。
+## 输出要求
+
+直接输出修正后的完整初稿。不要加任何"核查说明""修改理由"之类的元信息。保持原有的段落节奏、分节符 `······`、文末"（完）"、名言、标签。
 
 ---
 
@@ -847,7 +975,7 @@ def deepseek_factcheck(draft, news_text):
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
             timeout=120,
         )
         data = resp.json()
@@ -869,6 +997,14 @@ def doubao_polish(draft):
 - 初稿用的"据报道""可能"等措辞必须保留
 - 不能加原文没有的事情
 - 初稿的段落顺序和叙述逻辑尽量保持
+
+## 字数保护（重要）
+
+- **初稿字数多少，你润色后也要保持这个字数**
+- **禁止大幅压缩**——润色不是精简，而是让语言更顺
+- 如果初稿有 1800 字，润色后也必须保持 1800 字左右（±100 字可接受）
+- 如果你觉得某段重复啰嗦，**不要删除**，而是改写成更清晰的表达
+- 只有**明显的冗余句**（例如一段里重复说了两遍同一件事）可以删减
 
 ## 你可以做的
 - 让口语更顺，砍掉任何残留的书面腔

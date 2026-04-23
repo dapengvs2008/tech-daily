@@ -345,7 +345,7 @@ def generate_calendar_card(quote_text="", quote_author=""):
     # 农历行（如果农历库不可用，这一行隐藏）
     lunar_html = ""
     if lunar_text:
-        lunar_html = f'<p style="text-align:center;font-size:10px;color:#3e3e3e;font-weight:500;letter-spacing:1px;margin:0 0 14px;">{lunar_text}</p>'
+        lunar_html = f'<p style="text-align:center;font-size:10px;color:#3e3e3e;font-weight:500;letter-spacing:1px;margin:0 0 8px;">{lunar_text}</p>'
 
     # 构造 HTML（微信兼容：全部 <section>/<p> + 内联样式）
     # 结构：wrap → outer-red → inner-gap → inner-red → content → 顶部红块/正文/底部红块
@@ -357,25 +357,25 @@ def generate_calendar_card(quote_text="", quote_author=""):
 <section style="background:{RED_MAIN};padding:1px;">
 <section style="background:{PAPER};">
 
-<section style="display:flex;justify-content:space-between;align-items:center;padding:9px 16px;background:{RED_BLOCK};">
+<section style="display:flex;justify-content:space-between;align-items:center;padding:7px 16px;background:{RED_BLOCK};">
 <p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{year}</p>
 <p style="font-size:12px;color:#fff;font-weight:700;letter-spacing:2px;margin:0;text-align:center;flex:1;">鹏眼观天下</p>
 <p style="font-size:11px;color:#fff;font-weight:700;letter-spacing:1px;margin:0;">{month_cn}</p>
 </section>
 
-<section style="padding:6px 20px 8px;">
+<section style="padding:4px 20px 6px;">
 <section style="display:flex;align-items:flex-start;gap:2px;">
-<span style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-style:italic;color:{RED_MAIN};font-weight:400;margin-top:14px;line-height:1;">{month_en}</span>
-<span style="font-family:Georgia,serif;font-size:22px;color:{RED_MAIN};font-weight:300;margin-top:14px;margin-left:2px;margin-right:4px;line-height:1;">/</span>
-<span style="font-family:Georgia,'Times New Roman',serif;font-size:96px;font-weight:900;color:{RED_MAIN};line-height:0.92;letter-spacing:-4px;">{day}</span>
+<span style="font-family:Georgia,'Times New Roman',serif;font-size:19px;font-style:italic;color:{RED_MAIN};font-weight:400;margin-top:12px;line-height:1;">{month_en}</span>
+<span style="font-family:Georgia,serif;font-size:19px;color:{RED_MAIN};font-weight:300;margin-top:12px;margin-left:2px;margin-right:4px;line-height:1;">/</span>
+<span style="font-family:Georgia,'Times New Roman',serif;font-size:80px;font-weight:900;color:{RED_MAIN};line-height:0.92;letter-spacing:-3px;">{day}</span>
 </section>
-<p style="text-align:center;font-size:17px;font-weight:700;color:#2c2c2c;letter-spacing:8px;margin:6px 0 4px;">{weekday}</p>
+<p style="text-align:center;font-size:15px;font-weight:700;color:#2c2c2c;letter-spacing:6px;margin:4px 0 2px;">{weekday}</p>
 {lunar_html}
 </section>
 
 <section style="height:1px;background:{RED_MAIN};margin:0 16px;"></section>
 
-<section style="display:flex;justify-content:center;gap:22px;padding:10px 12px;">
+<section style="display:flex;justify-content:center;gap:22px;padding:8px 12px;">
 <p style="display:flex;align-items:center;gap:6px;font-size:13px;color:#2c2c2c;font-weight:600;margin:0;">
 <span style="display:inline-flex;width:20px;height:20px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;background:{RED_MAIN};">宜</span>
 {yi}
@@ -388,8 +388,8 @@ def generate_calendar_card(quote_text="", quote_author=""):
 
 <section style="height:1px;background:{RED_MAIN};margin:0 16px;"></section>
 
-<section style="padding:14px 22px 14px;">
-<p style="font-size:13px;color:#2c2c2c;line-height:1.9;margin:0 0 10px;text-align:justify;">"{quote_text}"</p>
+<section style="padding:10px 22px 10px;">
+<p style="font-size:13px;color:#2c2c2c;line-height:1.75;margin:0 0 8px;text-align:justify;">"{quote_text}"</p>
 <p style="font-size:12px;color:#3e3e3e;font-weight:500;text-align:right;margin:0;">—— {quote_author}</p>
 </section>
 

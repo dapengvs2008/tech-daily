@@ -462,6 +462,7 @@ def get_time_range():
 
 
 def fetch_google_news():
+    """Google News RSS - 返回 dict 列表"""
     queries = [
         "AI+artificial+intelligence+OpenAI+Anthropic+when:1d",
         "Apple+OR+Google+OR+Nvidia+OR+Tesla+OR+Microsoft+OR+Meta+tech+when:1d",
@@ -479,11 +480,18 @@ def fetch_google_news():
                 if title in seen_titles:
                     continue
                 seen_titles.add(title)
-                source = item.find("source").text if item.find("source") is not None else "unknown"
+                source = item.find("source").text if item.find("source") is not None else "Google News"
                 pub_date = item.find("pubDate").text if item.find("pubDate") is not None else ""
                 link = item.find("link").text if item.find("link") is not None else ""
                 desc = item.find("description").text if item.find("description") is not None else ""
-                all_articles.append(f"[Google News] 来源: {source}\n标题: {title}\n时间: {pub_date}\n链接: {link}\n描述: {desc}")
+                all_articles.append({
+                    "title": title.strip(),
+                    "url": link.strip(),
+                    "summary": re.sub(r"<[^>]+>", "", desc).strip()[:400],
+                    "source": source,
+                    "pub_time": pub_date,
+                    "lang": "en",
+                })
         except Exception as e:
             print(f"Google News 失败({q}): {e}")
     print(f"Google News: {len(all_articles)} 条")
@@ -491,6 +499,7 @@ def fetch_google_news():
 
 
 def fetch_newsapi():
+    """NewsAPI - 返回 dict 列表"""
     start_time, end_time = get_time_range()
     try:
         resp = requests.get(
@@ -511,9 +520,15 @@ def fetch_newsapi():
         articles = []
         for a in data.get("articles", []):
             if a.get("description"):
-                source = a.get("source", {}).get("name", "unknown")
-                article_url = a.get("url", "")
-                articles.append(f"[NewsAPI] 来源: {source}\n标题: {a['title']}\n链接: {article_url}\n摘要: {a['description']}\n片段: {(a.get('content') or '')[:400]}")
+                source = a.get("source", {}).get("name", "NewsAPI")
+                articles.append({
+                    "title": a.get("title", "").strip(),
+                    "url": a.get("url", ""),
+                    "summary": (a.get("description", "") + " " + (a.get("content") or "")[:300]).strip()[:500],
+                    "source": source,
+                    "pub_time": a.get("publishedAt", ""),  # ISO 格式
+                    "lang": "en",
+                })
         print(f"NewsAPI: {len(articles)} 条")
         return articles
     except Exception as e:
@@ -522,6 +537,7 @@ def fetch_newsapi():
 
 
 def fetch_hackernews():
+    """Hacker News - 返回 dict 列表"""
     try:
         resp = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json", timeout=15)
         story_ids = resp.json()[:20]
@@ -530,6 +546,7 @@ def fetch_hackernews():
                    "microsoft", "meta", "startup", "funding", "chip", "robot", "model",
                    "launch", "release", "billion", "acquisition", "open source",
                    "anthropic", "gemini", "claude", "copilot", "agent", "autonomous"]
+        now_ts = datetime.now(BJT).timestamp()
         for sid in story_ids:
             try:
                 item = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", timeout=10).json()
@@ -537,10 +554,21 @@ def fetch_hackernews():
                     continue
                 title = item.get("title", "")
                 score = item.get("score", 0)
-                url = item.get("url", "")
+                url = item.get("url", "") or f"https://news.ycombinator.com/item?id={sid}"
+                hn_time = item.get("time", 0)  # Unix 时间戳
+                # 转成 RFC 822 格式（和其他源一致）
+                pub_dt = datetime.fromtimestamp(hn_time, tz=BJT) if hn_time else None
+                pub_str = pub_dt.strftime("%a, %d %b %Y %H:%M:%S %z") if pub_dt else ""
                 if score >= 100 or any(kw in title.lower() for kw in tech_kw):
                     domain = url.split("/")[2] if url and "/" in url else "news.ycombinator.com"
-                    articles.append(f"[Hacker News] 来源: {domain}\n标题: {title}\n热度: {score}分\n链接: {url}")
+                    articles.append({
+                        "title": title.strip(),
+                        "url": url,
+                        "summary": f"Hacker News 热度 {score} 分。",
+                        "source": f"HN/{domain}",
+                        "pub_time": pub_str,
+                        "lang": "en",
+                    })
                 if len(articles) >= 8:
                     break
             except Exception:
@@ -553,6 +581,7 @@ def fetch_hackernews():
 
 
 def fetch_techcrunch_rss():
+    """TechCrunch RSS - 返回 dict 列表"""
     try:
         resp = requests.get("https://techcrunch.com/feed/", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
         root = ElementTree.fromstring(resp.content)
@@ -561,8 +590,15 @@ def fetch_techcrunch_rss():
             title = item.find("title").text or ""
             pub_date = item.find("pubDate").text if item.find("pubDate") is not None else ""
             link = item.find("link").text if item.find("link") is not None else ""
-            desc = re.sub(r'<[^>]+>', '', item.find("description").text or "")[:300] if item.find("description") is not None else ""
-            articles.append(f"[TechCrunch] 来源: TechCrunch\n标题: {title}\n时间: {pub_date}\n链接: {link}\n描述: {desc}")
+            desc = re.sub(r'<[^>]+>', '', item.find("description").text or "")[:400] if item.find("description") is not None else ""
+            articles.append({
+                "title": title.strip(),
+                "url": link.strip(),
+                "summary": desc.strip(),
+                "source": "TechCrunch",
+                "pub_time": pub_date,
+                "lang": "en",
+            })
         print(f"TechCrunch: {len(articles)} 条")
         return articles
     except Exception as e:
@@ -596,6 +632,11 @@ def generate_image_prompt(news_digest_text):
     输入：简报全文（或前 1500 字）
     输出：一条完整的中文电影感 prompt，可直接丢给豆包 Seedream
     """
+    # 防御：输入为空时直接返回 None，避免下游崩溃
+    if not news_digest_text or not isinstance(news_digest_text, str):
+        print("  图片 prompt 生成跳过：输入为空")
+        return None
+
     meta_prompt = f"""你是一位电影海报概念艺术总监。下面是今天的科技新闻简报。
 
 请从简报里**提取 2-3 个最具视觉冲击力的核心元素**，然后写一条中文 prompt，用于生成今日文章的主题插图。
@@ -706,448 +747,401 @@ def generate_cover_with_doubao_image(prompt_text, output_path="cover.png"):
         return None
 
 
-def deepseek_draft(news_text, last_summary="", recent_quotes=None):
-    start_time, end_time = get_time_range()
-    date_range = f"{start_time.strftime('%m月%d日 %H:%M')} ~ {end_time.strftime('%m月%d日 %H:%M')}（北京时间）"
+# ============================================================================
+# ===== v11 核心：国内 RSS 源抓取 =====
+# ============================================================================
 
-    continuity = ""
-    if last_summary:
-        continuity = f"""
-【连续追踪】昨天的简报结尾提到：
----
-{last_summary}
----
-如果今天的新闻里有昨天提到的内容的进展，请在对应新闻中自然提一句"昨天我们提到的XXX，今天有了新进展——"。
+def fetch_ithome():
+    """IT 之家 RSS 抓取"""
+    print("抓取 IT之家 RSS...")
+    try:
+        resp = requests.get(
+            "https://www.ithome.com/rss/",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        resp.encoding = "utf-8"
+        items = re.findall(
+            r"<item>\s*<title><!\[CDATA\[(.*?)\]\]></title>\s*"
+            r"<link>(.*?)</link>\s*"
+            r"<description><!\[CDATA\[(.*?)\]\]></description>\s*"
+            r"(?:<pubDate>(.*?)</pubDate>)?",
+            resp.text,
+            re.DOTALL,
+        )
+        articles = []
+        for title, link, desc, pubdate in items[:30]:
+            articles.append({
+                "title": title.strip(),
+                "url": link.strip(),
+                "summary": re.sub(r"<[^>]+>", "", desc).strip()[:300],
+                "source": "IT之家",
+                "pub_time": pubdate.strip() if pubdate else "",
+                "lang": "zh",
+            })
+        print(f"  IT之家 抓到 {len(articles)} 条")
+        return articles
+    except Exception as e:
+        print(f"  IT之家 抓取失败: {e}")
+        return []
+
+
+def fetch_jiqizhixin():
+    """机器之心 RSS 抓取"""
+    print("抓取 机器之心 RSS...")
+    try:
+        resp = requests.get(
+            "https://www.jiqizhixin.com/rss",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        resp.encoding = "utf-8"
+        items = re.findall(
+            r"<item>\s*<title>(.*?)</title>\s*"
+            r"<link>(.*?)</link>\s*"
+            r"(?:<description>(.*?)</description>)?\s*"
+            r"(?:<pubDate>(.*?)</pubDate>)?",
+            resp.text,
+            re.DOTALL,
+        )
+        articles = []
+        for title, link, desc, pubdate in items[:30]:
+            t = re.sub(r"<!\[CDATA\[|\]\]>", "", title).strip()
+            d = re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", desc or "").strip()[:300]
+            articles.append({
+                "title": t,
+                "url": link.strip(),
+                "summary": d,
+                "source": "机器之心",
+                "pub_time": pubdate.strip() if pubdate else "",
+                "lang": "zh",
+            })
+        print(f"  机器之心 抓到 {len(articles)} 条")
+        return articles
+    except Exception as e:
+        print(f"  机器之心 抓取失败: {e}")
+        return []
+
+
+def fetch_36kr():
+    """36kr RSS 抓取"""
+    print("抓取 36kr RSS...")
+    try:
+        resp = requests.get(
+            "https://36kr.com/feed",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        resp.encoding = "utf-8"
+        items = re.findall(
+            r"<item>\s*<title>(.*?)</title>\s*"
+            r"<link>(.*?)</link>\s*"
+            r"(?:<description>(.*?)</description>)?\s*"
+            r"(?:<pubDate>(.*?)</pubDate>)?",
+            resp.text,
+            re.DOTALL,
+        )
+        articles = []
+        for title, link, desc, pubdate in items[:30]:
+            t = re.sub(r"<!\[CDATA\[|\]\]>", "", title).strip()
+            d = re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", desc or "").strip()[:300]
+            articles.append({
+                "title": t,
+                "url": link.strip(),
+                "summary": d,
+                "source": "36kr",
+                "pub_time": pubdate.strip() if pubdate else "",
+                "lang": "zh",
+            })
+        print(f"  36kr 抓到 {len(articles)} 条")
+        return articles
+    except Exception as e:
+        print(f"  36kr 抓取失败: {e}")
+        return []
+
+
+# ============================================================================
+# ===== v11 核心：时间过滤 =====
+# ============================================================================
+
+def parse_pubdate_to_bjt(pubdate_str):
+    """各种 pubDate 字符串 → datetime（带 BJT 时区）"""
+    if not pubdate_str:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(pubdate_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=BJT)
+        return dt.astimezone(BJT)
+    except Exception:
+        try:
+            # 备用：ISO 格式
+            dt = datetime.fromisoformat(pubdate_str.replace("Z", "+00:00"))
+            return dt.astimezone(BJT)
+        except Exception:
+            return None
+
+
+def is_within_hours(pubdate_str, hours=24, now=None):
+    """是否在过去 N 小时内（默认 24h）"""
+    now = now or datetime.now(BJT)
+    pub = parse_pubdate_to_bjt(pubdate_str)
+    if pub is None:
+        return False  # 解析失败的丢弃，宁缺勿滥
+    delta = now - pub
+    return timedelta(0) <= delta <= timedelta(hours=hours)
+
+
+def relative_time(pubdate_str, now=None):
+    """转成 '3小时前' 这种相对时间显示"""
+    now = now or datetime.now(BJT)
+    pub = parse_pubdate_to_bjt(pubdate_str)
+    if pub is None:
+        return ""
+    delta = now - pub
+    seconds = int(delta.total_seconds())
+    if seconds < 60:
+        return "刚刚"
+    if seconds < 3600:
+        return f"{seconds // 60}分钟前"
+    if seconds < 86400:
+        return f"{seconds // 3600}小时前"
+    if seconds < 86400 * 2:
+        return "昨天"
+    return f"{seconds // 86400}天前"
+
+
+def filter_by_time(articles, hours=24, fallback_hours=36, min_count=8):
+    """严格 24h 过滤；如果不足 min_count 条，自动放宽到 fallback_hours"""
+    now = datetime.now(BJT)
+    filtered = [a for a in articles if is_within_hours(a.get("pub_time", ""), hours, now)]
+    if len(filtered) < min_count and hours < fallback_hours:
+        print(f"  24h 内仅 {len(filtered)} 条，放宽到 {fallback_hours}h...")
+        filtered = [a for a in articles if is_within_hours(a.get("pub_time", ""), fallback_hours, now)]
+    print(f"  时间过滤后剩 {len(filtered)} 条")
+    return filtered
+
+
+# ============================================================================
+# ===== v11 核心：DeepSeek 整理新闻（替代 draft + factcheck + polish 三层）=====
+# ============================================================================
+
+def deepseek_organize_news(articles):
+    """让 DeepSeek 把抓来的新闻整理成结构化 JSON。
+
+    输入：抓取到的新闻列表
+    输出：dict，三个板块的新闻列表
+        {
+            "international": [{title, summary, source, url, pub_time}, ...],
+            "domestic": [...],
+            "big_names": [...],
+            "headline": "今日要闻总标题"
+        }
+    """
+    # 拼接素材
+    news_blocks = []
+    for i, a in enumerate(articles, 1):
+        news_blocks.append(
+            f"[{i}] 【{a['source']}】({a.get('lang','zh')}) "
+            f"{a.get('pub_time','')}\n"
+            f"标题：{a['title']}\n"
+            f"链接：{a['url']}\n"
+            f"摘要：{a.get('summary','')}"
+        )
+    news_text = "\n\n".join(news_blocks)
+
+    prompt = f"""你是科技日报的编辑。下面是过去 24 小时抓取的新闻原始素材。请整理成可以直接发布的科技日报。
+
+## 你的任务（只做这些，不要做别的）
+
+1. **筛选**：从素材里挑出 8-15 条**真正重要**的科技新闻（去掉重复、广告、低质内容）
+2. **翻译**：英文新闻翻译成中文（标题和摘要都翻译）
+3. **改写标题**（仅改写不准确或太长的）：
+   - 中文新闻：保留原标题（除非有夸张词如"炸锅""血洗"，要改成中性表达）
+   - 英文新闻：翻译成"主体：核心动作或观点"格式（如"黄仁勋：英伟达卖的是 token"）
+4. **改写摘要**：每条 80-150 字，**只用原文事实，禁止添加任何观点、推断、评论**
+5. **分类**：把每条新闻归到下面三个板块之一：
+   - `international`（国际要闻）：发生在中国大陆以外的事
+   - `domestic`（国内动态）：中国大陆公司、国内政策、国内市场
+   - `big_names`（大佬观点）：知名人物的言论、表态、采访（黄仁勋、马斯克、奥特曼、库克、雷军、余承东等）
+6. **取一个总标题**：用极客公园式的标题，有冲突感、有信息量，20-30 字
+7. **生成 5 个话题标签**：4-8 个汉字，每个概括一条新闻
+
+## 严格要求
+
+- **不写任何评论**：你不是在写社论，是在做新闻编辑
+- **不加任何"分析认为""值得关注""引发热议"** 这类编辑感受的话
+- **保留时态**：原文说"将"就不能写成"已经"；原文说"或将"就不能写成"已经"
+- **保留来源**：每条都标注 source（IT之家/机器之心/36kr/TechCrunch 等）
+- **去重**：如果两条新闻讲同一件事（特别是国内外报道同一事件），合并成一条
+- **质量优于数量**：宁可只挑 8 条精品，也不要凑数
+
+## 输出格式（严格 JSON，不要任何额外文字）
+
+```json
+{{
+  "headline": "今日要闻总标题",
+  "topics": ["标签1", "标签2", "标签3", "标签4", "标签5"],
+  "international": [
+    {{
+      "title": "改写后的标题",
+      "summary": "80-150字摘要",
+      "source": "TechCrunch",
+      "url": "https://...",
+      "pub_time": "原 pubDate 字符串"
+    }}
+  ],
+  "domestic": [...],
+  "big_names": [...]
+}}
+```
+
+## 原始素材（共 {len(articles)} 条）
+
+{news_text}
 """
 
-    quotes_avoid = ""
-    if recent_quotes:
-        quotes_avoid = f"""
-【名言去重】最近7天已经用过以下名言，请务必避开这些，推荐一句完全不同的：
-{chr(10).join("- " + q for q in recent_quotes)}
-"""
-
-    prompt = f"""你是一位资深且极其严谨的科技记者，同时你的行文风格师承财经公众号"猫笔刀"。请根据以下新闻素材整理科技日报初稿。
-
-时间窗口：{date_range}
-{continuity}
-{quotes_avoid}
-
-## 第一原则：准确性高于一切
-
-**宁可少写，不可写错。** 具体要求：
-
-1. **只写原文明确说了的事**——如果原文只说了A，你不能推断出B
-2. **看不懂就跳过**——仅有标题没有全文摘要且内容不明确的，直接跳过
-3. **特别注意易混淆场景**：
-   - "产品有漏洞" vs "产品能发现别人的漏洞"
-   - "被起诉" vs "起诉别人"
-   - "限制发布" vs "停止开发"
-   - "计划" vs "已经"
-4. **数据必须谨慎**——具体金额、百分比必须在原文找到对应
-
-## 文风要求：猫笔刀式白话科技评论
-
-**核心气质**：像一个懂行的朋友，坐在你对面一边喝茶一边给你讲今天科技圈发生了啥。不是新闻联播，也不是学术报告。
-
-**六条硬性规则**：
-
-1. **段落要短**——每个自然段不超过2句话。宁可多分段，不要写长段。
-2. **句子要白**——能用大白话就不用书面语。删掉所有"毫无疑问""值得关注""标志着""本质是""预示着""综上所述"这种学生腔。
-3. **有观点就亮**——点评不单独开"点评"模块，直接融进叙述里。看完事实紧接着说"其实这事儿是……"、"说白了就是……"、"你以为A，其实是B"。
-4. **类比讲人话**——遇到专业概念，给一个生活化的比方。比如"算法稳定币"→"用另一个币的价格来托住这个币"；"AI基础设施"→"AI要跑起来背后要烧的那套东西"。
-5. **用六个点顶左格分节**——不要用小标题切块。每说完一条新闻/一个话题，空一行顶格打六个中间点（`······`），再进入下一段。不要用省略号 `……`，要用六个独立的中点，且不居中、靠左顶格。
-6. **结尾要有金句**——最后一句话要能让人停一下，有一点回味。不要写"让我们拭目以待""未来可期"这种套话。
-
-## 结构要求
-
-1. 筛选 3-5 条最重要的新闻（**强制最少 3 条，避免文章单薄**；不用凑够5-7条，宁缺毋滥但也不能只有 2 条）
-2. 同一事件合并
-3. 整篇文章像一条线讲下来，不要割裂成独立新闻块
-4. 不要给每条新闻起小标题——直接用"先说A这件事""再看B这边""还有第三件事顺便说一下"这种口语过渡
-
-### 标题与首段的关系（重要）
-
-5. **标题和首段绝对不能复读。** 标题说了"围绕效率"，首段就不能再说"今天都围绕效率"——读者会觉得在绕圈子。
-6. **首段必须从一个具体事实、场景或数字切入**，而不是先抛宏大结论。做法有三种任选：
-   - **具体事实型**：直接甩出最炸的一条新闻的核心数字或动作。示例："SpaceX 昨晚砸了 600 亿美元，买下一家连 VC 都没见过的 AI 公司。"
-   - **场景型**：像电影镜头一样切入。示例："昨天晚上硅谷有两家公司没睡。"
-   - **对比型**：把今天的事和大家熟悉的事做反差。示例："一家 5000 人的公司，把一家十几万人的巨头逼到了墙角。"
-7. **第二、三段再展开"今天这几件事有个共同点"的宏观判断**，让标题在这里才被暗暗揭晓。读者读到时是"哦原来是这样"的恍然大悟感，而不是"你这不刚说过吗"的冗余感。
-
-### 其他结构规则
-
-8. 每条新闻：事实描述（3-5个短段）→ 紧接着的观点分析（2-4个短段，融入叙述，不分开）
-9. 全文用 `······` 分隔不同话题块（顶左格六点）
-10. 结尾1-2段收束全篇，给一句有回味的金句
-11. **文末必须输出"（完）"单独一行**——这是本栏目的签名式收尾，不能省略
-12. 不要写"三句话说清楚"这种总结框
-13. 最后另起一行输出名人名言，格式：今日名言：内容——作者（身份）
-
-**额外输出：为今天的简报生成 5 个短话题标签**（4-8个汉字），格式：
-今日标签：标签1 | 标签2 | 标签3 | 标签4 | 标签5
-
-标签要求：每个标签精炼概括一条新闻的核心，便于读者一眼看懂。
-
-## 字数要求（硬性下限）
-
-**全文必须达到 1800 字以上**（不含名言和标签），理想区间 1800-2200 字。
-
-这是硬性要求，不是建议。之前有几版出现过"宁缺勿滥"导致整篇只有 800 字的情况，这种短篇不符合公众号定位。
-
-### 新闻少怎么办？（正确的展开方式）
-
-如果今天值得写的新闻只有 2-3 件，**不是减少文字**，而是**把每件事写透**：
-
-每件事可以从这几个角度展开（选 3-4 个即可达到足够字数）：
-1. **事件陈述**：发生了什么，具体数字、主角、时间（2-3段）
-2. **背景交代**：这件事之前行业里发生过什么，为什么这时点爆出来（2-3段）
-3. **影响分析**：对谁有影响，影响几时见效（2-4段）
-4. **类比释义**：用一个生活化比方帮读者理解（1-2段）
-5. **历史对照**：类似的事以前发生过吗，上次是什么结果（可选，1-2段）
-6. **观点收束**：说白了这事儿意味着什么（1-2段）
-
-**禁止**为了凑字数写废话段、重复已说过的话、加"值得关注"这种虚词。
-**鼓励**把每个观点讲具体、给类比、举小例子。
-
-## 禁止事项
-
-- 禁止使用任何 emoji 图标
-- 禁止写"据XX报道"，直接陈述事实
-- 禁止"炸锅""震惊""疯了""刷屏""沸腾"这类浮夸词
-- 禁止"毫无疑问""显而易见""不言而喻"这类判断词
-- 禁止"首先""其次""最后""综上所述"这种论文式连接词
-- 禁止在结尾加"让我们拭目以待""未来可期""敬请期待"
-- **禁止编造原文没有的媒体来源**（例如原文里没有《洛杉矶时报》，你就不能说"洛杉矶时报报道"）
-- **禁止把"计划/有权/可能"写成"已经/拿下/完成"**——这是最严重的事实错误
-
-
-来源翻译：TechCrunch→TechCrunch, Bloomberg→彭博社, Reuters→路透社, CNBC→CNBC, WSJ→华尔街日报, Hacker News→Hacker News
-
-用纯文本输出，不要HTML标签，不要emoji，不要markdown加粗。
-
-## 风格示例（仅供感受语气，内容无关）
-
----
-过去24小时，科技圈连着抛出两件大事。
-
-一件是库克宣布交棒，这是苹果2011年以来第一次换CEO。
-
-另一件是亚马逊计划再给Anthropic砸250亿美元。
-
-这两件事看起来一个在硬件一个在AI，但放一起看，其实是同一个故事的两面。
-
-· · · · · ·
-
-先说亚马逊这一刀。
-
-250亿美元比很多国家一年的GDP还多。很多人第一反应是亚马逊钱多烧的慌。
-
-其实完全不是。这笔钱的战略意义远大于财务回报，说白了就是在抢下一代AI的入场券。
-
-打个比方你就明白了。
-
-十几年前移动互联网刚起来的时候，巨头们抢的是什么？抢通信基站、抢数据中心，抢的都是上游入口。谁卡住上游谁就能收过路费。
-
-现在云巨头和大模型公司深度绑定，干的是一模一样的事。
----
-
-感受一下上面这种节奏：短段、口语、有观点、用类比、不端着。
-
-新闻素材：
-{news_text}"""
-
+    print(f"DeepSeek 整理新闻中（输入 {len(articles)} 条）...")
     try:
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
-            timeout=120,
-        )
-        data = resp.json()
-        if "choices" not in data:
-            print(f"DeepSeek 错误: {data}")
-            return None, "", "", []
-        draft = data["choices"][0]["message"]["content"]
-        print(f"DeepSeek 初稿生成完成 ({len(draft)} 字)")
-
-        # 提取名言
-        quote_text = ""
-        quote_author = ""
-        quote_match = re.search(r'今日名言[：:]\s*(.+?)——(.+)', draft)
-        if quote_match:
-            quote_text = quote_match.group(1).strip().strip('"').strip('\u201c').strip('\u201d')
-            quote_author = quote_match.group(2).strip().split("\n")[0].strip()
-            print(f"  今日名言: {quote_text} —— {quote_author}")
-            draft = re.sub(r'今日名言[：:].*', '', draft).strip()
-
-        # 提取标签
-        topics = []
-        tag_match = re.search(r'今日标签[：:]\s*(.+)', draft)
-        if tag_match:
-            tag_line = tag_match.group(1).strip().split("\n")[0]
-            topics = [t.strip() for t in re.split(r'[|｜丨]', tag_line) if t.strip()]
-            topics = topics[:5]
-            print(f"  今日标签: {topics}")
-            draft = re.sub(r'今日标签[：:].*', '', draft).strip()
-
-        return draft, quote_text, quote_author, topics
-    except Exception as e:
-        print(f"DeepSeek 请求失败: {e}")
-        return None, "", "", []
-
-
-def deepseek_factcheck(draft, news_text):
-    prompt = f"""你是严格的事实核查编辑。对照原始素材，找出初稿中不准确、夸大或推断过头的地方，输出修正后的完整初稿。
-
-## 七条红牌检查清单（必须逐条过）
-
-### 红牌 1：计划 vs 已经（最严重）
-文中每一个动词都要检查。原文说"有权""可能""计划""考虑"，初稿不能写成"已经""拿下""完成""收购了"。
-示例：
-- 原文"SpaceX 获得了以 600 亿美元收购 Cursor 的权利" → 初稿写"SpaceX 拿下了这家公司" ❌
-- 正确改法：改成"SpaceX 获得了收购选择权"或"SpaceX 有权在今年晚些时候收购"
-- 原文"考虑收购" → 初稿写"已收购" ❌
-
-### 红牌 2：媒体来源真实性（严重）
-初稿里每出现一个具体媒体名（《纽约时报》《华尔街日报》《洛杉矶时报》《彭博社》等），**必须在原始素材里找到匹配**。找不到的一律删除或改写为"据报道"。
-示例：
-- 原始素材里只有纽约时报的引用，但初稿写"《洛杉矶时报》此前也提到" → 这是来源幻觉 ❌
-- 改法：删除这个来源，或改写为"此前也有报道指出"
-
-### 红牌 3：主体张冠李戴
-每个类比、引用、挤压关系，主体对象不能错。特别小心 A、B、C 三方故事里谁在挤压谁、谁在给谁压力。
-示例：
-- 原文"Cursor 被 Anthropic 的编程工具挤压" → 初稿误写"Anthropic 给谷歌带来压力" ❌（移花接木）
-- 检查每个"对谁形成压力""逼谁怎么样"的表述，主体必须可追溯
-
-### 红牌 4：数字归属和精度
-员工数、估值、金额、百分比等具体数字：
-- 必须在原始素材里找到对应
-- 如果原始素材里有"约""大约""估计"等限定词，初稿也必须保留
-- 不同数据源有不同估计时，不能直接取最大值
-示例：
-- 原文"Tracxn 估计约 5000 人，其他数据源估计 2500-3000 人" → 初稿写"总共只有大约 5000 名员工" ⚠️ 应改为"据第三方数据估计在 3000-5000 人之间"或"据 XX 数据约 5000 人"
-
-### 红牌 5：因果关系推断
-初稿是否添加了原文没有的因果推断？
-示例：
-- 原文说"SpaceX 获得收购权" + "马斯克承认 xAI 编程能力落后" → 初稿写"这笔交易跳过了 VC 流程" ❌（原文没这么说，实际 Cursor 还在和 VC 谈融资）
-
-### 红牌 6：时态和数量模糊词
-初稿有没有把模糊词改成了精确词？
-- "几轮融资" ← 不能改成 "五轮融资"
-- "最近几周" ← 不能改成 "上周"
-- "大量员工" ← 不能改成 "数千员工"
-
-### 红牌 7：引号里的话
-初稿如果给人物加了引号，引号里的内容必须一字不差地在原始素材里出现过。
-
-## 修改原则
-- 发现红牌错误：**直接改正**为准确措辞
-- 发现夸大描述：**改为谨慎表述**（加"据报道""约""可能""计划"等限定词）
-- 发现**完全无法核实**的内容：**整段删除**（不要保留）
-- 修改后**保持字数不要大幅下降**——如果删掉一段，需要在其他地方展开对应内容
-- 保持文风和段落结构不变
-
-## 输出要求
-
-直接输出修正后的完整初稿。不要加任何"核查说明""修改理由"之类的元信息。保持原有的段落节奏、分节符 `······`、文末"（完）"、名言、标签。
-
----
-
-## 原始新闻素材
-{news_text[:12000]}
-
----
-
-## 待核查初稿
-{draft}"""
-
-    try:
-        resp = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
-            timeout=120,
-        )
-        data = resp.json()
-        if "choices" not in data:
-            return draft
-        corrected = data["choices"][0]["message"]["content"]
-        print(f"  事实核查完成 ({len(corrected)} 字)")
-        return corrected
-    except Exception as e:
-        print(f"  事实核查失败: {e}")
-        return draft
-
-
-def doubao_polish(draft):
-    prompt = f"""你是"鹏眼观天下"公众号主编，本账号的文风师承财经公众号"猫笔刀"：短段、白话、不端着。把已核查的初稿改写成一篇可以直接发到公众号的 HTML 文章。
-
-## 最高原则：事实零改动
-- 初稿说的所有事实一字不能改
-- 初稿用的"据报道""可能"等措辞必须保留
-- 不能加原文没有的事情
-- 初稿的段落顺序和叙述逻辑尽量保持
-
-## 字数保护（重要）
-
-- **初稿字数多少，你润色后也要保持这个字数**
-- **禁止大幅压缩**——润色不是精简，而是让语言更顺
-- 如果初稿有 1800 字，润色后也必须保持 1800 字左右（±100 字可接受）
-- 如果你觉得某段重复啰嗦，**不要删除**，而是改写成更清晰的表达
-- 只有**明显的冗余句**（例如一段里重复说了两遍同一件事）可以删减
-
-## 你可以做的
-- 让口语更顺，砍掉任何残留的书面腔
-- 补充类比让小白也看得懂（但事实必须来自初稿）
-- 强化开头的悬念（用初稿已有的事实）
-- 给结尾金句再打磨一下让它更抓人
-- 对专业名词加一句大白话解释，而不是加括号注释
-
-## 排版铁律（猫笔刀风格）
-
-**一、绝对不要出现的东西**：
-- 不要给新闻起小标题（蓝色标题、彩色标题都不行）
-- 不要用蓝色引用框包"鹏眼点评"或任何其他内容
-- 不要用任何背景色块、边框、圆角框来切分内容
-- 不要用"三句话说清楚"这种总结框
-- 不要 emoji、不要 markdown 加粗、不要 h1/h2/h3 标签
-- 不要把正文分栏、分模块
-
-**二、只允许使用的 HTML 元素**：
-- `<p>` 段落（正文）
-- `<p>` 段落（顶左格的六点分节符）
-- `<p>` 段落（总标题）
-- `<p>` 段落（文末的"（完）"）
-
-**三、排版模板**：
-
-总标题（黑色、加粗、不要蓝色）：
-<p style="font-size:20px;font-weight:700;color:#2c2c2c;line-height:1.5;margin:0 0 24px;letter-spacing:0.3px;">总标题</p>
-
-正文段落（每段1-2句话，不要长段）：
-<p style="font-size:16px;color:#3e3e3e;line-height:1.9;margin:0 0 18px;letter-spacing:0.5px;text-align:justify;">段落内容</p>
-
-分节符（每说完一个话题用一个，全文用3-5个，靠左顶格，不居中）：
-<p style="font-size:16px;color:#b8b8b8;letter-spacing:8px;margin:28px 0 22px;line-height:1;">······</p>
-
-**重要**：分节符必须用六个中文间隔符"·"（Unicode U+00B7），**不要用省略号 `……`**，因为省略号在不同字体下渲染会变成两坨粘在一起的点，视觉不整齐。分节符必须**靠左顶格**（`text-align` 默认 left，不要写 center），和正文左边对齐。
-
-文末"（完）"：
-<p style="font-size:15px;color:#9a9a9a;margin:32px 0 0;">（完）</p>
-
-**四、结构要求**：
-
-1. 总标题一行，紧接着空18-24px
-2. 开头2-4个短段，抛出今天的事（不要引言框，就直接写）
-3. 分节符六个中点 `······`
-4. 每条新闻：若干短段事实 + 若干短段观点，全部是纯 `<p>` 段落，不要任何框
-5. 每条新闻结束用 `······` 分节符
-6. 结尾2-4段收束全文，给金句
-7. 最后单独一个 `<p>（完）</p>`
-
-## 禁止清单（再强调一次）
-
-- 代码块、markdown加粗、h1/h2/h3、div 标签、section 标签、emoji、斜体
-- 蓝色小标题、蓝色引用框、背景色块
-- "鹏眼点评："这类栏目化标识
-- "三句话说清楚"总结框
-- 添加初稿没有的事实
-- 正文标注新闻来源
-- 标题用"炸锅""震惊"等浮夸词
-
-初稿（已核查）：
-{draft}"""
-
-    try:
-        resp = requests.post(
-            "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-            headers={"Authorization": f"Bearer {DOUBAO_KEY}", "Content-Type": "application/json"},
-            json={"model": "doubao-seed-2-0-pro-260215", "messages": [{"role": "user", "content": prompt}], "max_tokens": 6000},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 8000,
+                "response_format": {"type": "json_object"},
+            },
             timeout=180,
         )
         data = resp.json()
         if "choices" not in data:
-            print(f"豆包错误: {data}")
+            print(f"DeepSeek 错误: {data}")
             return None
-        result = data["choices"][0]["message"]["content"]
-        print(f"豆包润色完成 ({len(result)} 字)")
+        content = data["choices"][0]["message"]["content"]
+        # 清理 markdown 代码围栏（即使要求 JSON 也偶尔会出现）
+        content = re.sub(r"^```json\s*|\s*```$", "", content.strip())
+        result = json.loads(content)
+        print(f"  整理完成：国际 {len(result.get('international', []))} / "
+              f"国内 {len(result.get('domestic', []))} / "
+              f"大佬 {len(result.get('big_names', []))}")
         return result
     except Exception as e:
-        print(f"豆包请求失败: {e}")
+        print(f"DeepSeek 整理失败: {e}")
         return None
 
 
-def clean_response(text):
-    # 猫笔刀风格分节符（顶左格六点，不居中）——统一常量，便于整体调整
-    DIVIDER = '<p style="font-size:16px;color:#b8b8b8;letter-spacing:8px;margin:28px 0 22px;line-height:1;">······</p>'
+# ============================================================================
+# ===== v11 核心：HTML 模板拼接（替代 doubao_polish）=====
+# ============================================================================
 
-    # 去掉代码围栏
-    text = re.sub(r'```html\s*', '', text)
-    text = re.sub(r'```\s*$', '', text)
-    # markdown加粗 → 猫笔刀风格基本不用加粗
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    # 如果模型偶尔用了 h1-h6（违反规定），兜底转成正文段落（不是蓝色标题）
-    text = re.sub(
-        r'<h[1-6][^>]*>(.*?)</h[1-6]>',
-        r'<p style="font-size:16px;color:#3e3e3e;line-height:1.9;margin:0 0 18px;letter-spacing:0.5px;">\1</p>',
-        text,
+def render_news_item(item, now=None):
+    """渲染单条新闻为 HTML（含小标题、摘要、来源 + 时间）"""
+    now = now or datetime.now(BJT)
+    title = item.get("title", "").strip()
+    summary = item.get("summary", "").strip()
+    source = item.get("source", "")
+    pub_time = item.get("pub_time", "")
+    rel_t = relative_time(pub_time, now) if pub_time else ""
+    meta = f"来源：{source}"
+    if rel_t:
+        meta += f" · {rel_t}"
+
+    return f"""
+<section style="margin:0 0 26px;">
+<p style="font-size:17px;font-weight:700;color:#222;line-height:1.45;margin:0 0 10px;border-left:4px solid #c0392b;padding-left:12px;">{title}</p>
+<p style="font-size:15px;color:#3e3e3e;line-height:1.85;margin:0 0 8px;text-align:justify;">{summary}</p>
+<p style="font-size:12px;color:#9a9a9a;margin:0;">{meta}</p>
+</section>
+"""
+
+
+def render_section_header(label_zh, label_en):
+    """渲染板块大标题（如"国际要闻 BREAKING NEWS"）"""
+    return f"""
+<section style="margin:36px 0 22px;text-align:center;">
+<p style="display:inline-block;font-size:18px;font-weight:700;color:#222;letter-spacing:1px;margin:0;padding:0 16px;background:#fff;position:relative;">
+{label_zh}
+<span style="display:block;font-size:11px;color:#c0392b;letter-spacing:3px;margin-top:4px;">{label_en}</span>
+</p>
+<div style="border-top:2px solid #c0392b;margin-top:-32px;height:0;position:relative;z-index:-1;"></div>
+</section>
+"""
+
+
+def render_remind_block(items):
+    """渲染开头的"要闻提示"目录"""
+    if not items:
+        return ""
+    list_html = "".join(
+        f'<p style="font-size:14px;color:#3e3e3e;line-height:1.9;margin:0 0 6px;padding-left:24px;text-indent:-24px;">{i+1}. {item.get("title","")}</p>'
+        for i, item in enumerate(items[:8])
     )
-    # 把 <hr> 转成分节符（极少用，兜底）
-    text = re.sub(r'<hr[^>]*/?>', DIVIDER, text)
-
-    # ====== 分节符归一化（核心）======
-    # 无论模型输出什么形式的分节符（省略号、居中六点、各种变体），
-    # 全部归一化为顶左格六点。
-    #
-    # 匹配规则：一个独立的 <p> 标签，里面只有以下内容之一：
-    #   - 省略号 …… 或 ……… 或更多
-    #   - 英文省略号 ... 或 ......
-    #   - 中间点 · 或 ··· 或 ······
-    #   - 上述字符 + 空格的组合
-    # 不管 <p> 上有没有 text-align:center、什么颜色、什么 letter-spacing，统统替换。
-    text = re.sub(
-        r'<p[^>]*>[\s·…\.\u2026\u2027\u00b7]+</p>',
-        DIVIDER,
-        text,
-    )
-
-    # 兜底清理：如果模型违反规定用了 section 带浅色背景（蓝框/灰框），去掉背景
-    text = re.sub(
-        r'<section[^>]*background:\s*#[ef0-9a-f]{3,6}[^>]*>',
-        '<section>',
-        text,
-        flags=re.IGNORECASE,
-    )
-    # 兜底清理：如果模型用了 border-left 蓝色竖线，也清掉
-    text = re.sub(
-        r'<section[^>]*border-left:[^>]*>',
-        '<section>',
-        text,
-        flags=re.IGNORECASE,
-    )
-    return text.strip()
+    return f"""
+<section style="margin:24px 0 32px;padding:18px 16px;background:#faf6ee;border-left:4px solid #c0392b;">
+<p style="font-size:16px;font-weight:700;color:#c0392b;letter-spacing:2px;margin:0 0 12px;">要闻提示 · NEWS REMIND</p>
+{list_html}
+</section>
+"""
 
 
-def extract_main_subtitle(html_text):
-    """从正文提取主副标题，用于封面"""
-    # 兼容新旧两种字号：20px（新）和 22px（旧）
-    match = re.search(r'font-size:\s*(?:20|22)px[^>]*>(.*?)</p>', html_text)
-    if match:
-        title = re.sub(r'<[^>]+>', '', match.group(1)).strip()
-        # 尝试拆分为主副标题
-        for sep in ['，', '：', ' - ', '——', '：']:
-            if sep in title:
-                parts = title.split(sep, 1)
-                return parts[0].strip(), parts[1].strip()
-        # 没有分隔符，按长度拆分
-        if len(title) > 10:
-            mid = len(title) // 2
-            return title[:mid], title[mid:]
-        return title, "过去24小时精华"
-    return "全球科技圈", "过去24小时精华"
+def build_news_html(organized, now=None):
+    """把整理好的结构化数据 → 完整公众号 HTML（雷锋网+极客公园风格）"""
+    now = now or datetime.now(BJT)
+    headline = organized.get("headline", "今日科技要闻")
+
+    # 三个板块
+    intl = organized.get("international", [])
+    dom = organized.get("domestic", [])
+    big = organized.get("big_names", [])
+
+    # 头部：总标题 + 日期
+    weekday_cn = WEEKDAY_CN[now.weekday()]
+    date_str = now.strftime("%Y年%m月%d日") + f" · {weekday_cn}"
+
+    parts = [
+        f'<p style="font-size:21px;font-weight:800;color:#1a1a1a;line-height:1.4;margin:0 0 6px;">{headline}</p>',
+        f'<p style="font-size:13px;color:#9a9a9a;margin:0 0 4px;letter-spacing:1px;">{date_str}</p>',
+    ]
+
+    # 要闻提示（合并所有板块取前 8 条）
+    all_items = intl + dom + big
+    parts.append(render_remind_block(all_items))
+
+    # 国际要闻
+    if intl:
+        parts.append(render_section_header("国际要闻", "BREAKING NEWS"))
+        for item in intl:
+            parts.append(render_news_item(item, now))
+
+    # 国内动态
+    if dom:
+        parts.append(render_section_header("国内动态", "DOMESTIC NEWS"))
+        for item in dom:
+            parts.append(render_news_item(item, now))
+
+    # 大佬观点
+    if big:
+        parts.append(render_section_header("大佬观点", "BIG NAMES"))
+        for item in big:
+            parts.append(render_news_item(item, now))
+
+    return "\n".join(parts)
+
+
+def extract_titles_from_organized(organized):
+    """从整理后的数据提取主副标题（用于豆包封面图 prompt）"""
+    headline = organized.get("headline", "今日科技圈")
+    # 拆主副
+    for sep in ["，", "：", " - ", "——"]:
+        if sep in headline:
+            parts = headline.split(sep, 1)
+            return parts[0].strip(), parts[1].strip()
+    if len(headline) > 12:
+        mid = len(headline) // 2
+        return headline[:mid], headline[mid:]
+    return headline, "过去24小时科技要闻"
 
 
 def send_pushplus(title, content):
@@ -1171,11 +1165,10 @@ if __name__ == "__main__":
     start_time, end_time = get_time_range()
     print(f"时间窗口: {start_time.strftime('%Y-%m-%d %H:%M')} ~ {end_time.strftime('%Y-%m-%d %H:%M')} BJT")
 
-    print("=== 0/8 读取历史记录 ===")
-    last_summary = read_last_summary()
-    recent_quotes = read_recent_quotes()
+    print("=== 0/7 读取历史 ===")
+    recent_quotes = read_recent_quotes()  # 仅日历卡名言去重需要
 
-    print("=== 1/8 抓取新闻 ===")
+    print("=== 1/7 抓取新闻（4 国外源 + 3 国内源）===")
     print("  Google News...")
     google_articles = fetch_google_news()
     print("  NewsAPI...")
@@ -1185,87 +1178,101 @@ if __name__ == "__main__":
     print("  TechCrunch...")
     tc_articles = fetch_techcrunch_rss()
 
-    all_articles = google_articles + newsapi_articles + hn_articles + tc_articles
+    # 国内三大源
+    ithome_articles = fetch_ithome()
+    jqzx_articles = fetch_jiqizhixin()
+    kr36_articles = fetch_36kr()
+
+    all_articles = (
+        google_articles + newsapi_articles + hn_articles + tc_articles
+        + ithome_articles + jqzx_articles + kr36_articles
+    )
+    print(f"  原始共 {len(all_articles)} 条")
+
+    print("=== 2/7 时间过滤（24小时硬约束，不足放宽到36h）===")
+    all_articles = filter_by_time(all_articles, hours=24, fallback_hours=36, min_count=8)
 
     if not all_articles:
-        send_pushplus(title, "<p>今日暂无重大科技动态。</p>")
+        send_pushplus(title, "<p>过去24小时暂无重要科技动态。</p>")
         print("无新闻，已发送空报")
     else:
-        print(f"  共 {len(all_articles)} 条新闻")
+        print("=== 3/7 DeepSeek 整理新闻（无评论模式）===")
+        organized = deepseek_organize_news(all_articles)
 
-        print("=== 2/8 抓取新闻全文 ===")
-        all_articles = enrich_articles_with_fulltext(all_articles, max_fetch=12)
-        news_text = "\n\n".join(all_articles)
-
-        print("=== 3/8 DeepSeek 生成初稿（严格模式） ===")
-        draft, quote_text, quote_author, topics = deepseek_draft(news_text, last_summary, recent_quotes)
-
-        if draft:
-            print("=== 4/8 事实核查 ===")
-            draft = deepseek_factcheck(draft, news_text)
-
-            print("=== 5/8 豆包润色+排版 ===")
-            polished = doubao_polish(draft)
-
-            if polished:
-                final = clean_response(polished)
-            else:
-                final = f"<p style='color:#999;font-size:12px;'>（初稿版本）</p>\n{draft}"
+        if organized:
+            print("=== 4/7 模板拼接 HTML ===")
+            now_for_render = datetime.now(BJT)
+            final = build_news_html(organized, now_for_render)
+            topics = organized.get("topics", [])
         else:
-            final = "<p>AI 摘要生成失败。</p>"
-            quote_text = ""
-            quote_author = ""
+            final = "<p>AI 整理失败。</p>"
+            organized = {"headline": "今日科技要闻", "topics": []}
             topics = []
 
-        # 生成主题插图（豆包 Seedream 4.5 AI 生图）
-        print("=== 6/8 生成主题插图（豆包 Seedream 4.5） ===")
-        main_title, sub_title = extract_main_subtitle(final)
+        # 生成主题封面图
+        print("=== 5/7 生成主题封面图（豆包 Seedream 4.5）===")
+        main_title, sub_title = extract_titles_from_organized(organized)
         if not topics:
-            topics = ["OpenAI动态", "AI竞争升级", "芯片与算力", "资本风向", "新技术落地"]
+            topics = ["AI动态", "芯片算力", "国内创投", "海外巨头", "新品发布"]
         print(f"  主标题: {main_title} / {sub_title}")
         print(f"  话题标签: {topics}")
 
         cover_url = None
         cover_path = None
 
-        # 步骤 6.1: 根据文章内容生成图片 prompt
-        print("  步骤 6.1: 生成图片 prompt...")
-        # 从 draft（已核查的纯文本初稿）提取视觉元素，而不是用 HTML 版本
-        image_prompt = generate_image_prompt(draft)
+        if organized:
+            # 用 organized 数据为豆包生图 prompt 提供素材
+            digest_for_image = json.dumps(organized, ensure_ascii=False)[:2000]
+            print("  步骤 5.1: 生成图片 prompt...")
+            image_prompt = generate_image_prompt(digest_for_image)
+            if image_prompt:
+                print("  步骤 5.2: 豆包 Seedream 4.5 生图...")
+                cover_path = generate_cover_with_doubao_image(image_prompt, "cover.png")
 
-        # 步骤 6.2: 调用豆包 Seedream 4.5 生图
-        if image_prompt:
-            print("  步骤 6.2: 豆包 Seedream 4.5 生图...")
-            cover_path = generate_cover_with_doubao_image(image_prompt, "cover.png")
-
-        # 步骤 6.3: 失败时兜底到旧的 HTML 渲染封面
         if not cover_path:
-            print("  豆包生图失败，回退到 HTML 渲染封面...")
+            print("  豆包生图失败或跳过，回退到 HTML 渲染封面...")
             cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
 
-        # 步骤 6.4: 上传到 GitHub 拿 raw URL
         if cover_path:
             cover_url = commit_image_to_repo(cover_path)
 
         if cover_url:
-            cover_html = f'<section style="margin-bottom:28px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
+            cover_html = f'<section style="margin-bottom:24px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
             final = cover_html + final
             print("  封面图已插入文章开头")
         else:
             print("  封面图生成失败，跳过")
 
-        print("=== 7/8 生成日历卡片 ===")
+        # 日历卡（保留品牌资产，名言用历史去重）
+        print("=== 6/7 生成日历卡片 ===")
+        # 简单从历史名言池随机一句不重复的（保留 v10 逻辑的简化版）
+        quote_text = ""
+        quote_author = ""
+        # 不依赖 AI 生成名言：用预置池子轮换
+        DEFAULT_QUOTES = [
+            ("预测未来的最好方式，就是去创造它。", "艾伦·凯（计算机科学家）"),
+            ("我们构建的系统，最终会暴露出构建者的优先级。", "布莱恩·克里斯蒂安（作家）"),
+            ("技术是一种权力，而权力需要制衡。", "蒂姆·伯纳斯-李（万维网发明者）"),
+            ("简单是终极的复杂。", "达·芬奇"),
+            ("好的设计，是把复杂的事变简单。", "乔布斯"),
+            ("我们高估了短期的变化，低估了长期的革命。", "罗伊·阿玛拉"),
+        ]
+        random.seed(datetime.now(BJT).strftime("%Y%m%d"))
+        # 选一句最近 7 天没用过的
+        for q_text, q_author in random.sample(DEFAULT_QUOTES, len(DEFAULT_QUOTES)):
+            if q_text not in (recent_quotes or []):
+                quote_text, quote_author = q_text, q_author
+                break
+        if not quote_text:
+            quote_text, quote_author = DEFAULT_QUOTES[0]
+
         calendar = generate_calendar_card(quote_text, quote_author)
         final = final + calendar + DISCLAIMER
 
-        print("=== 8/8 推送微信 ===")
+        print("=== 7/7 推送微信 ===")
         send_pushplus(title, final)
 
-        # 保存历史
-        print("=== 保存历史数据 ===")
-        today_summary = extract_summary_from_html(final)
-        if today_summary:
-            save_summary(today_summary)
+        # 仅记录名言去重，不再做内容连续追踪
         if quote_text:
             save_recent_quote(quote_text, quote_author)
 

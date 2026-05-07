@@ -1,16 +1,31 @@
 """
-科技日报 digest.py · v12
+科技日报 digest.py · v12.5
 =========================
-基于 v11 全面升级，核心变化：
-  1. 内容深度升级：DeepSeek 从"事实搬运"升级为"雷锋网风格深度编辑"，允许轻微解读
-  2. NewsNow 中文一手快讯：财联社 / 华尔街见闻 / 金十 / IT之家热门 / 36氪快讯
-  3. 跨源事实验证：TOP3 重要事件做多源对比，发现冲突时给 ⚠ 标记
-  4. 三元组预去重：同事件多源命中时合并，让 DeepSeek 看到完整背景
-  5. 保留 v11 所有积累：豆包封面图、日历卡、时间过滤、双层降级、品牌物料
+v12.5 关键升级（基于 v12.4，所有改动符合"严守事实三铁律"路线）：
+  1. 防过期热点污染：last_titles.txt 持久化 7 天历史标题，双重查重
+     （精确匹配 + 关键词集合模糊匹配，相似度 ≥ 60%）
+  2. _normalize_pub_time 兜底修复：解析失败时返回空字符串而非原值
+  3. 标题改为 3 事件并列格式：「事件1; 事件2; 事件3」
+  4. 新增今日头条板块（headline_event）：1 条最重磅事件 200-400 字深度
+  5. 新增要闻提示精选（top_news_titles）：DeepSeek 输出 7-8 条精选短标题
+  6. Prompt 重写为"严守事实三铁律"版本：
+     - 不补背景（只用素材原文字面信息）
+     - 引语原文照搬（人物原话/数字/人名/产品名精准摘取）
+     - 不点评、不外推（禁止"这意味着""分析认为""市场预期"等连接词）
+  7. max_tokens：22000 → 32000，应对头条+要闻提示+正文扩容
+  8. 来源括号修正：禁止使用聚合器名（雷峰网/快科技/cnBeta），写真实信源
+  9. 英文源处理（方案 A）：中译事实陈述，引语用「中译。原文：'EN'」格式
+
+v12.4 保留特性（继承不动）：
+  - 选题导向规则（车企不报销量、美股巨头报 AI 维度、股价客观陈述）
+  - DSLR 真实摄影感封面 prompt（豆包 Seedream 4.5）
+  - 日历卡 + 宜忌四字标签
+  - NewsNow 中文一手快讯 + 跨源事实验证
 
 英文源保留：Google News + NewsAPI + Hacker News + TechCrunch
 中文源保留：IT之家 RSS + 机器之心 RSS + 36氪 RSS
-中文源新增：财联社 + 华尔街见闻 + 金十 + IT之家热门 + 36氪快讯（NewsNow）
+中文源（NewsNow）保留：财联社 + 华尔街见闻 + 金十 + IT之家热门 + 36氪快讯
+（注：阶段二 v13.0 会换源，本期 v12.5 暂不动）
 
 环境变量：
   NEWS_API_KEY        NewsAPI 密钥（保留）
@@ -297,6 +312,211 @@ def commit_image_to_repo(image_path):
 # ============================================================
 LAST_SUMMARY_FILE = "last_summary.txt"
 LAST_QUOTES_FILE = "last_quotes.txt"
+LAST_TITLES_FILE = "last_titles.txt"  # v12.5 新增：保存最近 7 天报道过的新闻标题（每行一条）
+
+
+def read_recent_titles():
+    """读取最近 7 天报道过的新闻标题，用于过滤已报道的过期热点。
+    
+    返回 dict：
+      'normalized': set，每个元素是标题归一化形式（精确匹配用）
+      'keywords': list，每个元素是该标题的关键词集合（模糊匹配用）
+    """
+    try:
+        with open(LAST_TITLES_FILE, "r", encoding="utf-8") as f:
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+            normalized = set()
+            keywords_list = []
+            for line in lines:
+                # 跳过日期分隔行
+                if line.startswith("==="):
+                    continue
+                normalized.add(_normalize_title(line))
+                kw = _extract_title_keywords(line)
+                if kw:
+                    keywords_list.append(kw)
+            print(f"  读取到 {len(normalized)} 条历史报道标题（用于查重）")
+            return {'normalized': normalized, 'keywords': keywords_list}
+    except FileNotFoundError:
+        print(f"  无历史标题文件（首次运行）")
+        return {'normalized': set(), 'keywords': []}
+    except Exception as e:
+        print(f"  读取历史标题失败: {e}")
+        return {'normalized': set(), 'keywords': []}
+
+
+def _normalize_title(title):
+    """标题归一化：去空白+全小写+去标点，用于精确匹配"""
+    import re as _re
+    s = (title or "").strip().lower()
+    s = _re.sub(r"[\s,。、，：:；;！!？?\"'\u201c\u201d\u2018\u2019「」【】《》()（）\[\]\-—_]+", "", s)
+    return s
+
+
+def _extract_title_keywords(title):
+    """从标题中提取核心词集合（实体名+关键动词），用于模糊匹配
+    
+    例如：
+      'Meta 收购 Manus 被叫停' → {'meta', 'manus', '收购', '叫停'}
+      '中国叫停 Meta 收购 Manus' → {'meta', 'manus', '收购', '叫停', '中国'}
+    两者交集 4/5 ≥ 0.8 视为同一事件
+    """
+    import re as _re
+    s = (title or "").strip().lower()
+    # 抽取英文单词、中文公司名、核心动词
+    # 已知重要实体词（可扩展）
+    KEY_ENTITIES = [
+        'openai', 'anthropic', 'claude', 'chatgpt', 'gpt', 'gemini', 'sora',
+        'google', 'apple', 'meta', 'microsoft', 'nvidia', 'amazon', 'tesla',
+        'deepseek', 'manus', 'kimi', 'qwen', 'doubao',
+        # 版本号识别（用于"DeepSeek V4 发布" / "DeepSeek-V4 上线"匹配）
+        'v3', 'v4', 'v5', 'gpt-5', 'gpt-6', 'claude4', 'claude5',
+        '阿里', '腾讯', '字节', '百度', '华为', '小米', '比亚迪', '蔚来', '理想', '小鹏',
+        '宇树', '智谱', '月之暗面', 'minimax', '商汤', '科大讯飞', '寒武纪',
+        '苹果', '谷歌', '微软', '英伟达', '亚马逊', '特斯拉',
+        '马斯克', '奥特曼', '黄仁勋', '库克', '皮查伊', '纳德拉', '扎克伯格', '梁文锋',
+        '雷军', '何小鹏', '李斌', '李想', '王传福', '余承东', '李彦宏',
+        '发改委', '商务部', '网信办', '工信部', 'fcc', 'sec', 'cfius',
+        # 动作类（同义词组）
+        '收购', '并购', '叫停', '禁止', '阻止', '撤销',
+        '发布', '上线', '推出', '官宣', '开源', '正式发布',
+        '融资', '估值', 'ipo', '上市', '股价',
+        '裁员', '诉讼', '起诉', '签署', '合作', '投资', '入股',
+        'mac', 'iphone', 'ipad', '芯片', '财报',
+    ]
+    
+    found = set()
+    for kw in KEY_ENTITIES:
+        if kw in s:
+            found.add(kw)
+    
+    return found
+
+
+def _is_similar_title(title_a_keywords, title_b_keywords, threshold=0.6):
+    """判断两个标题的关键词集合是否足够相似（同一事件）"""
+    if not title_a_keywords or not title_b_keywords:
+        return False
+    intersection = title_a_keywords & title_b_keywords
+    smaller = min(len(title_a_keywords), len(title_b_keywords))
+    if smaller == 0:
+        return False
+    overlap_ratio = len(intersection) / smaller
+    return overlap_ratio >= threshold and len(intersection) >= 2
+
+
+def save_today_titles(today_titles):
+    """把今天报道过的新闻标题追加到历史文件，并清理 7 天前的旧记录。"""
+    try:
+        today_str = datetime.now(BJT).strftime("%Y-%m-%d")
+        # 读旧文件，按日期分组保留最近 7 天
+        existing_lines = []
+        try:
+            with open(LAST_TITLES_FILE, "r", encoding="utf-8") as f:
+                existing_lines = [l.rstrip() for l in f.readlines()]
+        except FileNotFoundError:
+            pass
+        
+        # 按日期块切分
+        blocks = []  # 每个 block = (date_str, [titles])
+        current_date = None
+        current_titles = []
+        for line in existing_lines:
+            if line.startswith("=== ") and line.endswith(" ==="):
+                if current_date:
+                    blocks.append((current_date, current_titles))
+                current_date = line[4:-4].strip()
+                current_titles = []
+            elif line.strip():
+                current_titles.append(line.strip())
+        if current_date:
+            blocks.append((current_date, current_titles))
+        
+        # 仅保留最近 6 天的旧块（今天加上去就是 7 天）
+        from datetime import datetime as _dt
+        kept_blocks = []
+        for date_str, titles in blocks:
+            try:
+                d = _dt.strptime(date_str, "%Y-%m-%d").date()
+                today_d = _dt.strptime(today_str, "%Y-%m-%d").date()
+                days_ago = (today_d - d).days
+                if 0 <= days_ago <= 6 and date_str != today_str:
+                    kept_blocks.append((date_str, titles))
+            except Exception:
+                continue
+        
+        # 写新文件
+        out_lines = []
+        for date_str, titles in kept_blocks:
+            out_lines.append(f"=== {date_str} ===")
+            out_lines.extend(titles)
+            out_lines.append("")
+        out_lines.append(f"=== {today_str} ===")
+        out_lines.extend(today_titles)
+        
+        with open(LAST_TITLES_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(out_lines))
+        
+        subprocess.run(["git", "add", LAST_TITLES_FILE], check=False)
+        subprocess.run(["git", "commit", "-m", f"auto: update last titles {today_str}"], check=False)
+        subprocess.run(["git", "push"], check=False)
+        print(f"  已保存今日 {len(today_titles)} 条标题到历史记录")
+    except Exception as e:
+        print(f"  保存今日标题失败: {e}")
+
+
+def filter_by_recent_titles(articles, recent_titles_data):
+    """过滤掉标题已经在最近 7 天报道过的文章（防止热点过期新闻反复出现）。
+    
+    args:
+        articles: list of dict
+        recent_titles_data: dict with 'normalized' (set of normalized titles) 
+                           and 'keywords' (list of keyword sets)
+    
+    returns:
+        filtered articles
+    """
+    if not recent_titles_data or (not recent_titles_data.get('normalized') and not recent_titles_data.get('keywords')):
+        return articles
+    
+    normalized_set = recent_titles_data.get('normalized', set())
+    keywords_list = recent_titles_data.get('keywords', [])
+    
+    kept = []
+    skipped_count = 0
+    skipped_samples = []
+    for a in articles:
+        title = a.get("title", "")
+        norm = _normalize_title(title)
+        kw_set = _extract_title_keywords(title)
+        
+        # 精确匹配
+        if norm and norm in normalized_set:
+            skipped_count += 1
+            if len(skipped_samples) < 5:
+                skipped_samples.append(f"{title[:40]} (精确)")
+            continue
+        
+        # 关键词模糊匹配
+        is_dup = False
+        if kw_set:
+            for old_kw in keywords_list:
+                if _is_similar_title(kw_set, old_kw):
+                    is_dup = True
+                    break
+        if is_dup:
+            skipped_count += 1
+            if len(skipped_samples) < 5:
+                skipped_samples.append(f"{title[:40]} (模糊)")
+            continue
+        
+        kept.append(a)
+    
+    if skipped_count > 0:
+        print(f"  历史查重过滤掉 {skipped_count} 条已报道过的新闻")
+        for s in skipped_samples:
+            print(f"    - {s}")
+    return kept
 
 
 def read_recent_quotes():
@@ -447,6 +667,186 @@ def save_summary(summary_text):
         print(f"  今日总结已保存")
     except Exception as e:
         print(f"  保存总结失败: {e}")
+
+
+# ============================================================
+# v12.5 新增：last_titles.txt 持久化（防过期热点污染）
+# 文件格式：每行 "YYYY-MM-DD\t标题"
+# 保留最近 7 天的标题，防止已报道过的事件再次推送
+# ============================================================
+
+def read_last_titles(days=7):
+    """读取最近 N 天报道过的标题列表
+    
+    返回：set（已报道过的标题字符串集合，全部去除前后空格）
+    """
+    today = datetime.now(BJT).date()
+    cutoff = today - timedelta(days=days)
+    titles = set()
+    try:
+        with open(LAST_TITLES_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "\t" not in line:
+                    continue
+                date_str, title = line.split("\t", 1)
+                try:
+                    line_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    if line_date >= cutoff:
+                        titles.add(title.strip())
+                except ValueError:
+                    continue
+        print(f"  读取到最近 {days} 天历史标题 {len(titles)} 条（过期热点防护）")
+    except FileNotFoundError:
+        print(f"  历史标题文件不存在，首次运行")
+    except Exception as e:
+        print(f"  读取历史标题失败: {e}")
+    return titles
+
+
+def save_today_titles(titles):
+    """把今日报道过的标题追加到历史记录文件，并裁剪到 7 天
+    
+    titles: list[str] 今日实际推送的所有新闻标题
+    """
+    if not titles:
+        return
+    today = datetime.now(BJT).date()
+    today_str = today.strftime("%Y-%m-%d")
+    cutoff = today - timedelta(days=7)
+    
+    # 读出现有文件，过滤掉 7 天前的旧记录
+    kept_lines = []
+    try:
+        with open(LAST_TITLES_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or "\t" not in line:
+                    continue
+                date_str, title = line.split("\t", 1)
+                try:
+                    line_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    if line_date >= cutoff:
+                        kept_lines.append(line)
+                except ValueError:
+                    continue
+    except FileNotFoundError:
+        pass
+    
+    # 追加今日标题
+    for title in titles:
+        title = title.strip()
+        if title:
+            kept_lines.append(f"{today_str}\t{title}")
+    
+    try:
+        with open(LAST_TITLES_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(kept_lines) + "\n")
+        subprocess.run(["git", "add", LAST_TITLES_FILE], check=False)
+        subprocess.run(["git", "commit", "-m", "auto: update last titles"], check=False)
+        subprocess.run(["git", "push"], check=False)
+        print(f"  历史标题已更新，共保留 {len(kept_lines)} 条（7 天窗口）")
+    except Exception as e:
+        print(f"  保存历史标题失败: {e}")
+
+
+# ============================================================
+# v12.5 新增：双重查重函数（精确匹配 + 关键词集合模糊匹配）
+# ============================================================
+
+# 实体词词典：用于模糊匹配两个标题是否讲同一件事
+# 命中相同的关键实体 ≥ 60% → 视作重复
+KEYWORD_VOCAB = {
+    # AI 公司
+    "openai", "anthropic", "deepseek", "claude", "chatgpt", "gpt-4", "gpt-5", "gpt-5.5",
+    "gemini", "llama", "qwen", "kimi", "doubao", "豆包", "通义", "文心", "混元",
+    "manus", "moonshot", "智谱", "百川",
+    # 模型版本号
+    "v1", "v2", "v3", "v3.5", "v3.2", "v4", "v4.5", "v5", "v5.5",
+    # 大公司
+    "苹果", "apple", "谷歌", "google", "微软", "microsoft", "亚马逊", "amazon",
+    "meta", "facebook", "特斯拉", "tesla", "英伟达", "nvidia", "amd", "intel",
+    "字节", "腾讯", "阿里", "百度", "华为", "小米", "京东", "美团", "拼多多",
+    "理想", "小鹏", "蔚来", "比亚迪", "宁德时代",
+    # 关键动词
+    "发布", "推出", "上线", "收购", "融资", "ipo", "上市", "财报", "辞职", "离职",
+    "叫停", "禁止", "起诉", "和解", "宣布",
+    # 其他
+    "苹果", "openai", "manus", "agent", "robotaxi", "fsd",
+}
+
+
+def _extract_keywords(title):
+    """从标题提取关键实体词（小写化，去标点）"""
+    if not title:
+        return set()
+    s = title.lower()
+    # 简单分词：把所有标点替换成空格，按空格切
+    s = re.sub(r"[^\w\u4e00-\u9fff]+", " ", s)
+    tokens = set(s.split())
+    # 只保留在词典里的关键词
+    return tokens & KEYWORD_VOCAB
+
+
+def is_duplicate_with_history(title, history_titles, threshold=0.6):
+    """判断 title 是否和历史标题重复
+    
+    1. 精确匹配（去空格后字符串完全相同）
+    2. 关键词模糊匹配（实体词集合相似度 ≥ threshold）
+    
+    返回 (is_dup, matched_history_title or None)
+    """
+    if not title:
+        return False, None
+    title_clean = title.strip()
+    
+    # 精确匹配
+    if title_clean in history_titles:
+        return True, title_clean
+    
+    # 关键词模糊匹配
+    title_kw = _extract_keywords(title_clean)
+    if len(title_kw) < 2:  # 关键词太少不可信，跳过模糊匹配
+        return False, None
+    
+    for hist_title in history_titles:
+        hist_kw = _extract_keywords(hist_title)
+        if len(hist_kw) < 2:
+            continue
+        common = title_kw & hist_kw
+        # 相似度 = 公共关键词数 / 较小集合的大小
+        smaller = min(len(title_kw), len(hist_kw))
+        if smaller > 0 and len(common) / smaller >= threshold:
+            return True, hist_title
+    
+    return False, None
+
+
+def filter_articles_against_history(articles, history_titles):
+    """过滤掉与历史标题重复的文章
+    
+    返回 (filtered_articles, removed_count, removed_examples)
+    """
+    if not history_titles:
+        return articles, 0, []
+    
+    filtered = []
+    removed_examples = []
+    for art in articles:
+        title = art.get("title", "")
+        is_dup, matched = is_duplicate_with_history(title, history_titles)
+        if is_dup:
+            if len(removed_examples) < 5:
+                removed_examples.append((title[:40], matched[:40]))
+            continue
+        filtered.append(art)
+    
+    removed = len(articles) - len(filtered)
+    if removed > 0:
+        print(f"  ⚠ 过滤掉 {removed} 条与最近 7 天报道重复的文章")
+        for cur, hist in removed_examples:
+            print(f"    × 当前: {cur}  ← 历史: {hist}")
+    return filtered, removed, removed_examples
 
 
 def get_time_range():
@@ -783,9 +1183,14 @@ def fetch_newsnow_source(source_id, source_name, limit=20):
 
 
 def _normalize_pub_time(t):
-    """把各种格式时间字符串统一成 RFC 822（与 v11 其他源一致）"""
+    """把各种格式时间字符串统一成 RFC 822（与 v11 其他源一致）
+    
+    v12.5 修复：无法解析的 pub_time 必须返回空字符串，让时间过滤丢弃，
+    避免把奇怪的字符串原样返回导致下游误判为"在 24h 内"。
+    """
     if not t:
         return ""
+    
     if isinstance(t, (int, float)):
         # 时间戳（毫秒或秒）
         if t > 1e12:
@@ -797,14 +1202,38 @@ def _normalize_pub_time(t):
             return ""
     
     s = str(t).strip()
-    # ISO 格式 → RFC 822
+    if not s:
+        return ""
+    
+    # 尝试 1：ISO 8601 格式
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         return dt.strftime("%a, %d %b %Y %H:%M:%S %z")
     except Exception:
         pass
-    # 已经是 RFC 822 或其他格式，原样返回
-    return s
+    
+    # 尝试 2：RFC 822 格式（先解析能否成功）
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        if dt is not None:
+            return s  # 已是合法 RFC 822
+    except Exception:
+        pass
+    
+    # 尝试 3：纯数字字符串当成时间戳
+    try:
+        ts = float(s)
+        if ts > 1e12:
+            ts = ts / 1000
+        dt = datetime.fromtimestamp(ts, tz=BJT)
+        return dt.strftime("%a, %d %b %Y %H:%M:%S %z")
+    except Exception:
+        pass
+    
+    # v12.5 关键修复：所有解析都失败时返回空字符串而非原值
+    # 让 is_within_hours() 直接判定为不在窗口内，过滤掉
+    return ""
 
 
 def fetch_all_newsnow():
@@ -1059,137 +1488,213 @@ def merge_clusters_to_articles(clusters):
 #   6. 多源命中的事件作为重要性信号（不再要求写进摘要）
 # ============================================================
 
-DEEPSEEK_ORGANIZE_PROMPT = """你是一名经验丰富的科技日报深度编辑，参考雷锋网、36氪、极客公园的写作风格。
+DEEPSEEK_ORGANIZE_PROMPT = """你是一名经验丰富的科技新闻编辑，从事 7×24 时事整理工作。
 
 ## 你的任务
 
-把下面 24 小时内抓取的科技新闻原始素材，整理成一份**有信息密度、有上下文、读完有收获**的科技日报。
+把下面 24 小时内抓取的科技新闻原始素材，整理成一份**事实准确、信息密度高、可信度强**的科技日报。
 
-## 输出 4 个板块
+公众号定位：科技为主，参考雷峰早报的板块结构，但**严守事实，不补背景、不点评、不外推**。
 
-1. `headline`（总标题）：一句话点题，20-30 字，参考极客公园风格（有冲突感、有信息量、不夸张）
+## 输出 6 个板块（v12.5 新结构）
+
+1. `headline`（总标题）：**3 个最重磅事件用「; 」分隔的并列长标题**，每个事件 8-15 字，必须包含具体动词或具体数字。**适度使用感叹号（每个事件最多 1 个）**，但禁止"炸裂、暴涨、突袭、紧急、震惊"等强情绪词。
+   ✅ 示例：「OpenAI 自研手机敲定 2027 量产；iPhone Air 卖崩到 70 万台；谷歌市值反超苹果」
+   ❌ 反例：「重磅！OpenAI 突袭硬件圈！iPhone Air 暴跌 90%！谷歌炸裂反杀苹果！」（过度情绪化）
+
 2. `topics`（5 个话题标签）：每个 4-8 个汉字，概括当日 5 个最重要议题
-3. `international`（国际要闻）：**7-8 条**，发生在中国大陆以外的事
-4. `domestic`（国内动态）：**7-8 条**，中国大陆公司、政策、市场
-5. `big_names`（大佬观点）：**3-4 条**，知名人物（黄仁勋、马斯克、奥特曼、库克、雷军、余承东、李彦宏等）的言论、表态、采访
 
-**总条数目标：18-20 条**。素材足够时尽量满载到 20 条，国内板块优先扩展到 8 条（这是公众号差异化的关键）。
+3. `top_news_titles`（**v12.5 新增：要闻提示**）：**7-8 条短标题列表**，从今日全部素材里挑出最重要的 7-8 条，每条 15-30 字。这是"快读区"，让读者扫一眼就知道今天发生了什么。**不要写摘要，只要标题**。
 
-## 每条新闻的写作规范（核心，请严格执行）
+4. `headline_event`（**v12.5 新增：今日头条**）：**1 条最重磅事件的深度展开**，200-400 字。从素材里选 1 个最重磅、最具象的事件，按"严守事实三铁律"展开。
+
+5. `international`（国际要闻）：**5-6 条**，发生在中国大陆以外的事
+
+6. `domestic`（国内动态）：**5-6 条**，中国大陆公司、政策、市场
+
+7. `big_names`（大佬观点）：**2-3 条**，知名人物（黄仁勋、马斯克、奥特曼、库克、雷军、余承东、李彦宏等）的言论、表态、采访
+
+**总条数目标：12-15 条事件**（去掉头条和要闻提示重叠）。素材足够时尽量满载。
+
+## 严守事实三铁律（v12.5 核心原则，必须遵守）
+
+### 铁律 1：不补背景
+
+只用素材原文里的字面信息，**绝对禁止**基于训练数据补充常识、背景、解释、行业知识、历史事件。
+- ❌ 错误："这是 Meta 史上第三大收购，仅次于 WhatsApp 和 Scale AI"（训练数据补的，素材里没有）
+- ❌ 错误："Anthropic 二级市场估值已超越 OpenAI 的 8800 亿美元"（除非素材里明确写了"超越 OpenAI"）
+- ✅ 正确：只写素材里给的数字、时间、人物、动作
+
+### 铁律 2：引语原文照搬
+
+人物原话、官方表态、数字、人名、机构名、产品名 必须从素材原文中**精准摘取**，不能改字、不能换词、不能润色。
+- ✅ 正确：素材是"黄仁勋表示'AI 是新的工业革命'" → 输出"黄仁勋表示：'AI 是新的工业革命。'"
+- ❌ 错误：把原话改写成"黄仁勋认为 AI 将引领新工业时代"
+
+### 铁律 3：不点评、不外推
+
+禁止使用"这意味着"、"分析人士认为"、"市场普遍预期"、"业内人士指出"、"值得关注"、"引发热议"、"无疑"等不在素材原文里的连接词。**只陈述事实，不下结论**。
+
+- ❌ 错误："这意味着英伟达将巩固其 AI 芯片霸主地位"（外推）
+- ❌ 错误："分析认为该收购将改变行业格局"（点评）
+- ❌ 错误："值得关注的是..."（编辑感受词，无意义）
+- ✅ 正确：只陈述"英伟达完成了某动作"，至于这意味着什么、读者自己判断
+
+### 关键句提取（允许的"整合"方式）
+
+可以从素材原文里**摘抄 2-4 个关键句**，通过简单连接词（"然后"、"根据"、"数据显示"）拼成一段。摘抄时**不改字**，只调整顺序和加连接词。
+
+- 关键句包括：具体数字、人物原话、官方表态、政策内容、产品参数
+
+## 每条新闻的写作规范
 
 ### 1. 标题改写
-- **中文新闻**：保留原标题（除非有"炸锅""血洗"等夸张词，要改成中性表达）
-- **英文新闻**：翻译成"主体：核心动作或观点"格式（如"黄仁勋：英伟达卖的是 token"）
+- **中文新闻**：保留原标题（除非有"炸锅"、"血洗"等夸张词，要改成中性表达）
+- **英文新闻**：翻译成"主体：核心动作"格式（如"黄仁勋：英伟达卖的是 token"）
 - 标题不超过 30 字
 
-### 2. 摘要长度（重要）
-- **头条**（每板块第一条）：**200-300 字**，必须包含完整背景串联
-- **普通条目**：**120-180 字**，包含事实核心 + 1 句客观对比 + 1 句轻微解读
-- **要闻提示**只用标题，不要摘要
+### 2. 摘要长度
+- **`headline_event`（今日头条）**：**200-400 字**，从素材摘抄 2-3 个关键事实拼接
+- **普通条目**：**150-300 字**，包含具体时间 + 主语 + 动词 + 数字 + 来源
+- **`top_news_titles`（要闻提示）**：只用标题，**不要摘要**
 
-### 3. 必须包含的内容元素
+### 3. 第一句必须包含
+- 具体时间（YYYY 年 M 月 D 日 / 5 月 X 日 消息）
+- 事件主语（谁）
+- 核心动词（做了什么）
+- 具体数字（如果素材里有）
 
-每条摘要必须包含以下元素中的至少 3 项（头条必须全部包含）：
-
-**A. 关键事实** —— 5W1H 的核心：谁/做了什么/什么时候/什么金额/什么规模
-   ✅ 例："4 月 27 日，国家发改委叫停 Meta 20 亿美元收购 Manus 的交易"
-   ❌ 反例："监管机构对一项收购作出决定"（信息密度太低）
-
-**B. 客观事实对比** —— 把这件事放进更大的坐标系
-   ✅ 例："这是 Meta 史上第三大收购，仅次于 WhatsApp 和 Scale AI"
-   ✅ 例："Anthropic 二级市场估值已超越 OpenAI 的 8800 亿美元"
-   ⚠️ 边界：必须是**可验证的事实**，不是"分析认为""有人认为"
-
-**C. 事件脉络（仅头条要求）** —— 1-2 句时间线串联
-   ✅ 例："Manus 母公司去年 12 月才完成对 Meta 的出售，仅 4 个月后被叫停"
-
-**D. 轻微解读（允许但不强制）** —— 雷锋网风格的因果连接
-   ✅ 允许的句式：
-       - "这意味着 [客观影响]"
-       - "背后的深层原因是 [行业事实]"
-       - "这一变化将让 [可观察的后果]"
-   ❌ 禁止的句式：
-       - "分析人士认为..."（除非真的有引用）
-       - "值得关注的是..."（编辑感受词，没意义）
-       - "引发热议..."（流量词，俗套）
-       - "这无疑..."（无意义强调）
-
-### 4. 摘要写作风格（重要）
-**纯事实陈述**：摘要必须直接以事实开头，**禁止**"据 X 报道""据 CNBC、Bloomberg 报道""根据多家媒体报道"等写法。
+### 4. 摘要写作风格
+**纯事实陈述**：摘要必须直接以事实开头，**禁止**"据 X 报道"、"据 CNBC、Bloomberg 报道"、"根据多家媒体报道"等写法。
 
 ❌ 错误示范：
-- "据 CNBC、Bloomberg、TechCrunch 等多家媒体报道，Anthropic 正与投资者洽谈..."
+- "据 CNBC、Bloomberg 等多家媒体报道，Anthropic 正与投资者洽谈..."
 - "据 TechCrunch 报道，软银集团正在组建一家机器人公司..."
-- "据华尔街见闻、IT之家报道，宇树科技发布了..."
 
-✅ 正确示范（同事件改写）：
+✅ 正确示范：
 - "Anthropic 正与投资者洽谈新一轮融资，估值在 8500 亿至 9000 亿美元之间..."
 - "软银集团正在组建一家机器人公司，专门用于建设数据中心..."
-- "宇树科技发布了一款仅包含上半身的人形机器人，专注于上肢操作任务..."
 
 **消息来源已在底部独立标注（"来源：CNBC"），开头不要再重复说谁报道的。直接进入事实。**
 
 ### 5. 数据准确性铁律
 - **金额、估值、时间、百分比**必须与原文完全一致
-- 不知道精确数字时不要瞎编（如"约""近""可能"是允许的）
+- 不知道精确数字时不要瞎编（如"约"、"近"、"可能"是允许的）
 - **绝对禁止**：自行计算或推断数字（如把 25 亿美元换算成"约 178 亿元人民币"——这是猜的）
 
-### 6. 来源标注
-每条新闻必须保留 source 字段（用于底部"来源：xxx"标注）。多源命中时 source 填权威度最高的主源（顺序：彭博/路透/WSJ/FT/CNBC > TechCrunch/The Verge > 财联社/华尔街见闻/金十 > IT之家/36氪/机器之心 > 其他）。**摘要正文里不要提任何媒体名称**。
+### 6. 来源标注（v12.5 修正）
+每条新闻必须保留 source 字段。**括号里写素材原文里实际出现的真实信源**，**禁止**写"雷峰网"、"36氪综合报道"等聚合器名称。
 
-## 严格要求
+可用信源（按可信度排序）：
+- 高可信：(新华社) (央视新闻) (人民日报) (澎湃新闻) (第一财经) (中证报)
+- 中高：(财联社) (华尔街见闻) (金十数据) (IT之家) (机器之心) (钛媒体)
+- 海外官方：(NVIDIA Newsroom) (Apple Newsroom) (Tesla IR) (OpenAI 官方博客) (Anthropic 公告)
+- 海外媒体：(CNBC) (Bloomberg) (Reuters) (TechCrunch) (The Verge) (The Information)
 
-- **不写社论**：不要"未来可期""值得期待""影响深远"这种空话
-- **保持时态**：原文"将"就不能写成"已经"
-- **保持中性**：不站队，不评价（除了 D 项允许的"轻微解读"）
-- **去重**：两条新闻讲同一件事的合并成一条
-- **数量与质量并重**：在保证质量前提下，目标 18-20 条，国内板块尽量写满 8 条
-- **大佬观点板块特殊要求**：原文必须**确实是 X 说的话**，不能把媒体解读当成大佬本人观点
+**禁止使用**：(快科技)、(cnBeta)、(微博)、(知乎)、(自媒体公众号) ← 这些是二手聚合或非权威源
 
-### ⚠️ 选题特别规则（重要，请严格执行）
+## 选题导向规则（保留 v12.4 规则）
 
-**1. 国内车企（理想/蔚来/小鹏/比亚迪/小米/华为/极氪/AITO/方程豹/MG等）：禁止报道单纯的销量数据**
-- ❌ 错误选题："理想 4 月交付 X 万辆""比亚迪 4 月销量出炉""小米 SU7 月销 X 万"
+### 1. 国内车企（理想/蔚来/小鹏/比亚迪/小米/华为/极氪/AITO/方程豹/MG等）：禁止报道单纯销量数据
+- ❌ 错误选题："理想 4 月交付 X 万辆"、"比亚迪 4 月销量出炉"、"小米 SU7 月销 X 万"
 - ❌ 错误选题：销量榜排名、交付增长率、市占率纯数据
-- ✅ 优先选题：智能驾驶（FSD/NOA/城市领航/L3 落地）、自研芯片（高通/英伟达/华为昇腾/地平线方案）、AI 大模型上车、座舱系统、整车 OS、电池技术（800V/全固态）、自研激光雷达、人形机器人布局
+- ✅ 优先选题：智能驾驶（FSD/NOA/城市领航/L3 落地）、自研芯片、AI 大模型上车、座舱系统、整车 OS、电池技术（800V/全固态）、自研激光雷达、人形机器人布局
 - ✅ 大佬发言：何小鹏/雷军/李想/王传福对智驾/AI/芯片的观点（不是销量话术）
 - 简单说：**只关注汽车的"科技含量"，不关注它的"商业表现"**
 
-**2. 美股科技巨头（苹果/微软/谷歌/Meta/亚马逊/英伟达/特斯拉等）：必须包含 AI 相关投入信息**
-- 报道这些公司的财报/业绩/股价时，**必须挖掘出 AI 维度**：
-  - AI 资本开支具体数字（如"谷歌 AI 资本开支 2000 亿美元"）
-  - AI 业务收入贡献（如"AI 推动云业务季度营收首次突破 200 亿美元"）
-  - AI 战略表态（如"皮查伊：算力瓶颈仍限制公司增长"）
-  - AI 产品进展（GPT/Gemini/Claude/Copilot 用户数、企业渗透）
-- **股价影响要客观评价**：
-  - ✅ 允许的客观陈述："消息公布后 X 公司股价盘后下跌 3%""超出市场预期 2 个百分点，引发盘前上涨"
-  - ✅ 允许的客观对比："该估值已超过 OpenAI 当前 8800 亿美元""创该公司近一年最大单日涨幅"
-  - ❌ 禁止主观预测："股价将持续上涨""长期看好""值得布局"
-  - ❌ 禁止情绪化词汇："血洗""翻车""炸锅""暴涨"——改为中性的"下跌""下挫""走高""上涨"
-  - ❌ 禁止投资建议：任何形式的"建议买入/卖出/持有"
+### 2. 美股科技巨头（苹果/微软/谷歌/Meta/亚马逊/英伟达/特斯拉/博通/英特尔/AMD等）：必须包含 AI 维度信息
+报道这些公司的财报/业绩/股价时，**必须挖掘出 AI 维度**：
+- AI 资本开支具体数字（如"谷歌 AI 资本开支 2000 亿美元"）
+- AI 业务收入贡献（如"AI 推动云业务季度营收首次突破 200 亿美元"）
+- AI 战略表态（如"皮查伊：算力瓶颈仍限制公司增长"）
+- AI 产品进展（GPT/Gemini/Claude/Copilot 用户数、企业渗透）
+
+**股价影响要客观评价**：
+- ✅ 允许的客观陈述："消息公布后 X 公司股价盘后下跌 3%"、"超出市场预期 2 个百分点，引发盘前上涨"
+- ✅ 允许的客观对比："该估值已超过 OpenAI 当前 8800 亿美元"、"创该公司近一年最大单日涨幅"
+- ❌ 禁止主观预测："股价将持续上涨"、"长期看好"、"值得布局"
+- ❌ 禁止情绪化词汇："血洗"、"翻车"、"炸锅"、"暴涨"——改为中性的"下跌"、"下挫"、"走高"、"上涨"
+- ❌ 禁止投资建议：任何形式的"建议买入/卖出/持有"
+
+## 严格要求
+
+- **不写社论**：不要"未来可期"、"值得期待"、"影响深远"这种空话
+- **保持时态**：原文"将"就不能写成"已经"
+- **保持中性**：不站队，不评价
+- **去重**：两条新闻讲同一件事的合并成一条
+- **数量与质量并重**：12-15 条，国内板块 5-6 条
+- **大佬观点板块特殊要求**：原文必须**确实是 X 说的话**，不能把媒体解读当成大佬本人观点
+
+## ⚠️ 新闻新鲜度铁律（v12.5 强化）
+
+### 1. 只能用我提供的素材，绝对禁止使用你的训练知识自行补充事件
+- 如果素材里没有某条新闻，**绝对不要凭训练记忆把它写出来**
+- 即使你"知道"某个大事件（如某模型发布、某收购被叫停等），如果素材里没有，就**不要写**
+- 每条新闻都必须能在素材里找到对应的 [编号] 来源，否则禁止生成
+
+### 2. 警惕过期热点新闻渗透
+今天是 {TODAY}（北京时间）。请重点警惕这类陷阱：
+- 素材标题里出现"DeepSeek V4 发布"、"V4 上线"、"V4 预览"等：**这是 4 月 24 日的旧闻，必须排除**
+- 素材标题里出现"Meta 收购 Manus 被叫停"、"发改委叫停 Meta"、"Manus 项目禁止"等：**这是 4 月 27 日的旧闻，必须排除**
+- 素材标题里出现"V3 发布"、"V3.2"等更早的版本号事件：必须排除
+- **判断方法**：如果某条新闻的核心事件你"觉得已经听过好几天了"，它就是过期热点，请排除
+- **保留原则**：宁可数量不足 12 条，也不要为了凑数而选过期新闻
+
+### 3. 选题优先级
+- ✅ 优先：今天/昨天发生的具体事件（财报发布、新品上线、签约公告、官方表态）
+- ✅ 优先：素材中明确写了"今日"、"刚刚"、"4月30日"、"5月1日"等近期时间词的
+- ⚠️ 谨慎：素材中没有具体日期、只有"近期"、"日前"的——可能是过期热点
+- ❌ 排除：素材中明显是 4 天前以上的事件（无论它在素材中如何被频繁提及）
+
+## 英文素材处理（方案 A：中译，但引语/数字/人名保原文）
+
+处理英文官方源（NVIDIA Newsroom / Apple Newsroom / OpenAI 博客 / Tesla IR 等）时：
+
+1. **中译事实陈述部分**，保持原意
+2. **人物引语**用「中文翻译。原文："English Quote"」格式
+3. **数字保留原值**（美元/百万/吉瓦等单位也保留）
+4. **人名/产品名/机构名**首次提及时给「中文译名（English Name）」格式
+
+举例：
+
+英文原文：
+> NVIDIA CEO Jensen Huang said "AI is the new industrial revolution." The company announced $5 billion investment in AI chips.
+
+✅ 中译输出：
+> 英伟达（NVIDIA）CEO 黄仁勋（Jensen Huang）表示："AI 是新的工业革命。原文：'AI is the new industrial revolution.'" 公司宣布投资 50 亿美元研发 AI 芯片。(NVIDIA Newsroom)
 
 ## 输出格式（严格 JSON）
 
 ```json
 {
-  "headline": "今日要闻总标题",
+  "headline": "事件1; 事件2; 事件3 (3 个事件用分号空格分隔)",
   "topics": ["标签1", "标签2", "标签3", "标签4", "标签5"],
+  "top_news_titles": [
+    "要闻短标题 1（15-30 字）",
+    "要闻短标题 2",
+    "...",
+    "要闻短标题 7-8"
+  ],
+  "headline_event": {
+    "title": "今日头条标题（30 字内）",
+    "summary": "200-400 字深度展开，从素材摘抄 2-3 个关键事实拼接，严守事实三铁律",
+    "source": "真实信源（如 IT之家 / 澎湃 / NVIDIA Newsroom）",
+    "url": "https://...",
+    "pub_time": "原 pubDate 字符串"
+  },
   "international": [
     {
       "title": "改写后的标题",
-      "summary": "120-300 字摘要（头条 200-300，其他 120-180）",
-      "source": "TechCrunch",
+      "summary": "150-300 字摘要",
+      "source": "真实信源",
       "url": "https://...",
-      "pub_time": "原 pubDate 字符串",
-      "is_headline": true
+      "pub_time": "原 pubDate 字符串"
     }
   ],
   "domestic": [...],
   "big_names": [...]
 }
 ```
-
-每个板块的第一条 `is_headline` 标记为 true，要求 200-300 字摘要 + 完整背景串联。
 
 ## 原始素材（共 {ARTICLE_COUNT} 条）
 
@@ -1220,10 +1725,13 @@ def deepseek_organize_news(articles):
         )
     news_text = "\n\n".join(news_blocks)
 
+    today_str = datetime.now(BJT).strftime("%Y年%m月%d日")
     prompt = DEEPSEEK_ORGANIZE_PROMPT.replace(
         "{ARTICLE_COUNT}", str(len(articles))
     ).replace(
         "{ARTICLES_TEXT}", news_text
+    ).replace(
+        "{TODAY}", today_str
     )
 
     print(f"DeepSeek 整理新闻中（输入 {len(articles)} 条事件簇）...")
@@ -1234,7 +1742,7 @@ def deepseek_organize_news(articles):
             json={
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 22000,  # v12.2 提升：16000 → 22000，应对扩容到 18-20 条
+                "max_tokens": 32000,  # v12.5 提升：22000 → 32000，应对头条+要闻提示+正文扩容
                 "response_format": {"type": "json_object"},
                 "temperature": 0.3,   # 略带创意但仍以事实为主
             },
@@ -1459,13 +1967,27 @@ def render_section_header(label_zh, label_en):
 """
 
 
-def render_remind_block(items):
-    """要闻提示：列出当日所有新闻标题（最多 20 条）"""
-    if not items:
+def render_remind_block(items, top_news_titles=None):
+    """要闻提示：v12.5 优先用 DeepSeek 输出的 top_news_titles 字段
+    
+    top_news_titles: list[str] - DeepSeek 提供的精选短标题列表
+    items: list[dict] - 完整新闻列表,作为降级使用(无 top_news_titles 时)
+    """
+    # v12.5 优先：DeepSeek 提供的精选要闻
+    if top_news_titles and isinstance(top_news_titles, list):
+        title_list = [t.strip() for t in top_news_titles if isinstance(t, str) and t.strip()][:8]
+    elif items:
+        # 降级：从所有新闻里取前 8 条标题
+        title_list = [item.get("title", "").strip() for item in items[:8] if item.get("title")]
+    else:
         return ""
+    
+    if not title_list:
+        return ""
+    
     list_html = "".join(
-        f'<p style="font-size:14px;color:#3e3e3e;line-height:1.9;margin:0 0 6px;padding-left:24px;text-indent:-24px;">{i+1}. {item.get("title","")}</p>'
-        for i, item in enumerate(items[:20])
+        f'<p style="font-size:14px;color:#3e3e3e;line-height:1.9;margin:0 0 6px;padding-left:24px;text-indent:-24px;">{i+1}. {t}</p>'
+        for i, t in enumerate(title_list)
     )
     return f"""
 <section style="margin:24px 0 32px;padding:18px 16px;background:#faf6ee;border-left:4px solid #c0392b;">
@@ -1475,10 +1997,33 @@ def render_remind_block(items):
 """
 
 
+def render_headline_event(headline_event, now=None, validations=None):
+    """v12.5 新增：今日头条板块 - 1 条最重磅事件深度展开"""
+    if not headline_event or not isinstance(headline_event, dict):
+        return ""
+    title = headline_event.get("title", "").strip()
+    summary = headline_event.get("summary", "").strip()
+    source = headline_event.get("source", "").strip()
+    if not title or not summary:
+        return ""
+    
+    source_html = f'<span style="display:inline-block;font-size:12px;color:#888;margin-top:8px;">来源：{source}</span>' if source else ""
+    
+    return f"""
+<section style="margin:32px 0;padding:24px 18px;background:linear-gradient(180deg,#fff8f3 0%,#fdf2e9 100%);border:2px solid #c0392b;border-radius:8px;">
+<p style="font-size:13px;font-weight:700;color:#c0392b;letter-spacing:3px;margin:0 0 14px;">🔥 今日头条 · TODAY'S HEADLINE</p>
+<p style="font-size:19px;font-weight:800;color:#1a1a1a;line-height:1.45;margin:0 0 12px;">{title}</p>
+<p style="font-size:15px;color:#2c2c2c;line-height:1.85;margin:0;text-align:justify;">{summary}</p>
+{source_html}
+</section>
+"""
+
+
 def build_news_html(organized, now=None, validations=None):
     """v12 升级版：把整理好的结构化数据 → 完整公众号 HTML
     
     新增：传入 validations 字典后，对应新闻会附带"多源核查提示"徽章
+    v12.5：新增 today's headline 板块 + DeepSeek 提供的精选要闻
     """
     now = now or datetime.now(BJT)
     headline = organized.get("headline", "今日科技要闻")
@@ -1486,6 +2031,10 @@ def build_news_html(organized, now=None, validations=None):
     intl = organized.get("international", [])
     dom = organized.get("domestic", [])
     big = organized.get("big_names", [])
+    
+    # v12.5 新增字段
+    headline_event = organized.get("headline_event")
+    top_news_titles = organized.get("top_news_titles")
 
     weekday_cn = WEEKDAY_CN[now.weekday()]
     date_str = now.strftime("%Y年%m月%d日") + f" · {weekday_cn}"
@@ -1495,8 +2044,13 @@ def build_news_html(organized, now=None, validations=None):
         f'<p style="font-size:13px;color:#9a9a9a;margin:0 0 4px;letter-spacing:1px;">{date_str}</p>',
     ]
 
+    # v12.5 板块顺序：要闻提示 → 今日头条 → 国际/国内/大佬
     all_items = intl + dom + big
-    parts.append(render_remind_block(all_items))
+    parts.append(render_remind_block(all_items, top_news_titles=top_news_titles))
+    
+    # v12.5 新增：今日头条板块
+    if headline_event:
+        parts.append(render_headline_event(headline_event, now, validations))
 
     if intl:
         parts.append(render_section_header("国际要闻", "BREAKING NEWS"))
@@ -1646,44 +2200,83 @@ def generate_image_prompt(news_digest_text):
 
 def generate_cover_with_doubao_image(prompt_text, output_path="cover.png"):
     if not prompt_text:
+        print("  豆包跳过：prompt 为空")
         return None
-    try:
-        print(f"  正在请求豆包 Seedream 4.5...")
-        resp = requests.post(
-            "https://ark.cn-beijing.volces.com/api/v3/images/generations",
-            headers={
-                "Authorization": f"Bearer {DOUBAO_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "doubao-seedream-4-5-251128",
-                "prompt": prompt_text,
-                "size": "1920x817",  # v12.3 改为 2.35:1（公众号封面/朋友圈分享卡片标准比例，不裁切）
-                "response_format": "url",
-                "watermark": False,
-            },
-            timeout=120,
-        )
-        data = resp.json()
-        if "data" not in data or not data["data"]:
-            print(f"  豆包图像返回异常: {data}")
-            return None
-
-        image_url = data["data"][0].get("url")
-        if not image_url:
-            return None
-
-        img_resp = requests.get(image_url, timeout=60)
-        if img_resp.status_code != 200:
-            return None
-
-        with open(output_path, "wb") as f:
-            f.write(img_resp.content)
-        print(f"  主题插图已保存: {output_path} ({len(img_resp.content) // 1024} KB)")
-        return output_path
-    except Exception as e:
-        print(f"  豆包图像生成异常: {e}")
-        return None
+    
+    # 豆包 Seedream 4.5 要求图片至少 3,686,400 像素（约 3.5MP）
+    # v12.4 修正：1920x817 仅 1.57MP 不够，改为 3000x1277（3.83MP，符合公众号 2.35:1）
+    size_candidates = [
+        ("3000x1277", "2.35:1 超宽幅 / 3.83MP"),  # 公众号封面/朋友圈分享卡片标准比例
+        ("16:9", "16:9 比例（豆包枚举值）"),       # 兜底1：豆包枚举的 16:9
+        ("2K", "2K 默认正方 / 4MP"),              # 兜底2：豆包默认 2K 一定能成
+    ]
+    
+    for size_value, size_desc in size_candidates:
+        try:
+            print(f"  请求豆包 Seedream 4.5（size={size_value} / {size_desc}）...")
+            resp = requests.post(
+                "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+                headers={
+                    "Authorization": f"Bearer {DOUBAO_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "doubao-seedream-4-5-251128",
+                    "prompt": prompt_text,
+                    "size": size_value,
+                    "response_format": "url",
+                    "watermark": False,
+                },
+                timeout=120,
+            )
+            
+            # 详细日志：HTTP 状态码
+            print(f"  豆包 HTTP 状态: {resp.status_code}")
+            
+            # 解析 JSON
+            try:
+                data = resp.json()
+            except Exception as je:
+                print(f"  豆包返回非JSON: {je}, 原文前200字: {resp.text[:200]}")
+                continue  # 尝试下一个 size
+            
+            # 检查返回结构
+            if "data" not in data or not data["data"]:
+                error_info = data.get("error", {})
+                error_msg = error_info.get("message", "未知错误")
+                error_code = error_info.get("code", "")
+                print(f"  豆包返回异常: code={error_code}, msg={error_msg}")
+                print(f"  完整返回: {data}")
+                # 如果是 size 不支持，继续尝试下一个；其他错误直接退出
+                if "size" in str(error_msg).lower() or "invalid" in str(error_msg).lower() or "unsupported" in str(error_msg).lower():
+                    print(f"  推测是 size 参数问题，尝试下一个尺寸...")
+                    continue
+                else:
+                    print(f"  非 size 问题，停止重试")
+                    return None
+            
+            image_url = data["data"][0].get("url")
+            if not image_url:
+                print(f"  豆包返回缺 url 字段")
+                continue
+            
+            print(f"  豆包返回 url: {image_url[:80]}...")
+            img_resp = requests.get(image_url, timeout=60)
+            if img_resp.status_code != 200:
+                print(f"  下载图片失败: HTTP {img_resp.status_code}")
+                continue
+            
+            with open(output_path, "wb") as f:
+                f.write(img_resp.content)
+            print(f"  ✓ 主题插图已保存: {output_path} ({len(img_resp.content) // 1024} KB) size={size_value}")
+            return output_path
+            
+        except Exception as e:
+            print(f"  豆包异常（size={size_value}）: {type(e).__name__}: {e}")
+            continue  # 尝试下一个 size
+    
+    print(f"  ✗ 豆包所有 size 候选全部失败，将走 HTML 兜底")
+    return None
 
 
 def send_pushplus(title, content):
@@ -1712,6 +2305,7 @@ if __name__ == "__main__":
 
     print("\n=== 0/9 读取历史 ===")
     recent_quotes = read_recent_quotes()
+    recent_titles = read_recent_titles()  # v12.5 新增：读取最近 7 天报道过的标题
 
     print("\n=== 1/9 抓取新闻（4 国外 + 3 国内 RSS + 5 NewsNow 一手快讯）===")
     print("【英文源】")
@@ -1737,6 +2331,11 @@ if __name__ == "__main__":
 
     print("\n=== 2/9 时间过滤（24小时硬约束，不足放宽到36h）===")
     all_articles = filter_by_time(all_articles, hours=24, fallback_hours=36, min_count=8)
+    
+    # v12.5 新增：历史标题查重 - 防止过期热点新闻（如 NewsNow 热门榜常驻条目）反复出现
+    print("  历史标题查重...")
+    all_articles = filter_by_recent_titles(all_articles, recent_titles)
+    print(f"  最终素材池：{len(all_articles)} 条")
 
     if not all_articles:
         send_pushplus(title, "<p>过去24小时暂无重要科技动态。</p>")
@@ -1749,6 +2348,12 @@ if __name__ == "__main__":
         
         # 给 DeepSeek 用合并后的事件簇
         merged_articles = merge_clusters_to_articles(clusters)
+        
+        # v12.5 新增：历史标题查重，过滤掉最近 7 天报道过的事件
+        print("\n=== 3.5/9 历史标题查重（防过期热点污染）===")
+        history_titles = read_last_titles(days=7)
+        merged_articles, removed_dup, _ = filter_articles_against_history(merged_articles, history_titles)
+        print(f"  查重后剩余 {len(merged_articles)} 条事件簇")
         
         print("\n=== 4/9 跨源事实验证（仅 TOP 3 多源命中事件）===")
         validations = validate_top_clusters(clusters, max_validations=3)
@@ -1830,5 +2435,23 @@ if __name__ == "__main__":
 
         if quote_text:
             save_recent_quote(quote_text, quote_author)
+        
+        # v12.5 新增：保存今日报道过的标题到历史，供后续查重
+        if organized:
+            today_titles = []
+            # v12.5：今日头条
+            he = organized.get("headline_event")
+            if isinstance(he, dict):
+                t = he.get("title", "").strip()
+                if t:
+                    today_titles.append(t)
+            # 国际/国内/大佬
+            for section in ("international", "domestic", "big_names"):
+                for item in organized.get(section, []) or []:
+                    t = item.get("title", "").strip()
+                    if t:
+                        today_titles.append(t)
+            if today_titles:
+                save_today_titles(today_titles)
 
     print("\n全部完成！")

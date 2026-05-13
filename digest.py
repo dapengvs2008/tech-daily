@@ -1,7 +1,33 @@
 """
-科技日报 digest.py · v12.5.1
+科技日报 digest.py · v13.0-day1
 =========================
-v12.5.1 补丁(基于 v12.5,纯 prompt 调整,不改主流程):
+v13.0 阶段二「换源」工程进行中。本文件为 Day 1 中间产物。
+
+v13.0 Day 1 改动(基于 v12.5.1):
+  1. NEWSNOW_SOURCES 重构:
+     - 踢掉 cls-hot(A 股热门,过期严重)
+     - 踢掉 jin10(外汇宏观,跟科技无关)
+     - 新增 wallstreetcn-news(实时一手财经科技流)
+     - 保留 wallstreetcn-quick(财经快讯)
+     - 保留 ithome(消费科技)
+     - 保留 36kr-quick(创业/互联网)
+  2. PRIORITY_SOURCES 同步更新
+
+预期效果(明早推送):
+  - 国际板块质量大幅提升:wallstreetcn-news 抓到 Anthropic 融资/Cerebras IPO 等实时一手
+  - 过期热点污染进一步减少:cls-hot 热门榜被踢掉
+  - 国内动态可能仍偏财经:Day 2-3 接入量子位/新智元/虎嗅后才会完全补齐
+
+v13.0 路线图:
+  Day 1: ✓ NewsNow 源配置(本文件)
+  Day 2: 接 OpenAI / Anthropic / DeepMind 官方源
+  Day 2-3: 接 NVIDIA / Tesla / Apple 官方 + 量子位 / 新智元 / 虎嗅
+  Day 3: 重写英文源中译处理(方案 A)
+  Day 3-4: DeepSeek prompt 适配新源
+  Day 4: 端到端测试
+  Day 5: 踢掉旧源(Google News / NewsAPI / Hacker News / TechCrunch)
+
+v12.5.1 补丁(继承):
   1. 来源黑名单扩充:加 MSN/Yahoo News/新浪/网易/搜狐 等聚合器
   2. 多源拼接强制全量列:整合 2+ 素材时,所有真实信源都列出 (CNBC、财联社)
   3. 引语完整摘抄铁律:禁止截断引语,即使 50 字也要全文(防 v12.5 截断 Barry Diller 那种)
@@ -1124,11 +1150,14 @@ def fetch_36kr():
 # ============================================================
 
 NEWSNOW_SOURCES = [
-    {"id": "cls-hot",            "name": "财联社",        "lang": "zh"},
-    {"id": "wallstreetcn-quick", "name": "华尔街见闻",    "lang": "zh"},
-    {"id": "jin10",              "name": "金十数据",      "lang": "zh"},
-    {"id": "ithome",             "name": "IT之家热门",    "lang": "zh"},
-    {"id": "36kr-quick",         "name": "36氪快讯",      "lang": "zh"},
+    # v13.0 Day 1 改动:踢掉热门榜,改用快讯流/最新流
+    # 之前:cls-hot, wallstreetcn-quick, jin10, ithome, 36kr-quick
+    # 现在:wallstreetcn-news + wallstreetcn-quick(双国际科技+财经快讯),保留 ithome/36kr-quick(国内科技快讯)
+    # 踢掉的:cls-hot(A 股热门,过期严重) jin10(外汇宏观,跟科技无关)
+    {"id": "wallstreetcn-news",  "name": "华尔街见闻",    "lang": "zh"},  # 实时一手财经科技流(已实测)
+    {"id": "wallstreetcn-quick", "name": "华尔街见闻快讯", "lang": "zh"},  # 财经快讯(快、短)
+    {"id": "ithome",             "name": "IT之家",        "lang": "zh"},  # 消费科技
+    {"id": "36kr-quick",         "name": "36氪快讯",      "lang": "zh"},  # 创业/互联网
 ]
 
 
@@ -1955,8 +1984,8 @@ def validate_top_clusters(clusters, max_validations=3):
     
     优先级：多源命中数高 > 一手中文源 > 其他
     """
-    # 排序：先按多源命中数，再按是否含财联社/华尔街见闻这种一手源
-    PRIORITY_SOURCES = {"财联社", "华尔街见闻", "金十数据", "IT之家", "36kr"}
+    # 排序：先按多源命中数，再按是否含华尔街见闻/IT之家这种一手源（v13.0 调整）
+    PRIORITY_SOURCES = {"华尔街见闻", "华尔街见闻快讯", "IT之家", "36氪快讯", "36kr"}
     
     def priority(c):
         score = len(c["all"])

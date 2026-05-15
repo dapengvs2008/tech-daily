@@ -1,7 +1,12 @@
 """
-科技日报 digest.py · v13.0-day1
+科技日报 digest.py · v13.0-day1.1
 =========================
-v13.0 阶段二「换源」工程进行中。本文件为 Day 1 中间产物。
+v13.0 阶段二「换源」工程进行中。本文件为 Day 1.1(小修订)。
+
+v13.0 Day 1.1 改动:
+  - 新增 DISABLE_COVER_IMAGE 环境变量(暂停封面图功能)
+    在 GitHub Secrets 添加 DISABLE_COVER_IMAGE=1 即整段跳过封面图
+    删除该变量或设为空 → 恢复原有封面图生成行为
 
 v13.0 Day 1 改动(基于 v12.5.1):
   1. NEWSNOW_SOURCES 重构:
@@ -80,6 +85,11 @@ DOUBAO_KEY     = os.environ["DOUBAO_API_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 GITHUB_REPO    = os.environ.get("GITHUB_REPO", "dapengvs2008/tech-daily")
 NEWSNOW_BASE_URL = os.environ.get("NEWSNOW_BASE_URL", "https://newsnow-dz3.pages.dev")
+
+# v13.0-day1.1 新增：封面图开关
+# 设为 "1"/"true"/"yes"(大小写不敏感) 即跳过封面图整段（不调豆包、不 HTML 兜底）
+# 未设或设为其他值 → 保持原有行为（生成封面图）
+DISABLE_COVER_IMAGE = os.environ.get("DISABLE_COVER_IMAGE", "").strip().lower() in ("1", "true", "yes", "on")
 
 BJT = timezone(timedelta(hours=8))
 
@@ -2482,34 +2492,41 @@ if __name__ == "__main__":
 
         # 生成主题封面图
         print("\n=== 7/9 生成主题封面图（豆包 Seedream 4.5）===")
-        main_title, sub_title = extract_titles_from_organized(organized)
-        if not topics:
-            topics = ["AI动态", "芯片算力", "国内创投", "海外巨头", "新品发布"]
-        print(f"  主标题: {main_title} / {sub_title}")
-        print(f"  话题标签: {topics}")
+        
+        # v13.0-day1.1 封面图开关：DISABLE_COVER_IMAGE=1 → 整段跳过
+        if DISABLE_COVER_IMAGE:
+            print("  ⏭ DISABLE_COVER_IMAGE 已开启，跳过封面图生成")
+            cover_url = None
+            cover_path = None
+        else:
+            main_title, sub_title = extract_titles_from_organized(organized)
+            if not topics:
+                topics = ["AI动态", "芯片算力", "国内创投", "海外巨头", "新品发布"]
+            print(f"  主标题: {main_title} / {sub_title}")
+            print(f"  话题标签: {topics}")
 
-        cover_url = None
-        cover_path = None
+            cover_url = None
+            cover_path = None
 
-        if organized:
-            digest_for_image = json.dumps(organized, ensure_ascii=False)[:2000]
-            print("  步骤 7.1: 生成图片 prompt...")
-            image_prompt = generate_image_prompt(digest_for_image)
-            if image_prompt:
-                print("  步骤 7.2: 豆包 Seedream 4.5 生图...")
-                cover_path = generate_cover_with_doubao_image(image_prompt, "cover.png")
+            if organized:
+                digest_for_image = json.dumps(organized, ensure_ascii=False)[:2000]
+                print("  步骤 7.1: 生成图片 prompt...")
+                image_prompt = generate_image_prompt(digest_for_image)
+                if image_prompt:
+                    print("  步骤 7.2: 豆包 Seedream 4.5 生图...")
+                    cover_path = generate_cover_with_doubao_image(image_prompt, "cover.png")
 
-        if not cover_path:
-            print("  豆包生图失败或跳过，回退到 HTML 渲染封面...")
-            cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
+            if not cover_path:
+                print("  豆包生图失败或跳过，回退到 HTML 渲染封面...")
+                cover_path = generate_cover_png(main_title, sub_title, topics, "cover.png")
 
-        if cover_path:
-            cover_url = commit_image_to_repo(cover_path)
+            if cover_path:
+                cover_url = commit_image_to_repo(cover_path)
 
-        if cover_url:
-            cover_html = f'<section style="margin-bottom:24px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
-            final = cover_html + final
-            print("  封面图已插入文章开头")
+            if cover_url:
+                cover_html = f'<section style="margin-bottom:24px;"><img src="{cover_url}" style="width:100%;border-radius:8px;" /></section>'
+                final = cover_html + final
+                print("  封面图已插入文章开头")
 
         # 日历卡（保留品牌资产）
         print("\n=== 8/9 生成日历卡片 ===")

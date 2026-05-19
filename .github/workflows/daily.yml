@@ -33,4 +33,6 @@ jobs:
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
+          NEWSNOW_BASE_URL: ${{ secrets.NEWSNOW_BASE_URL }}
+          DISABLE_COVER_IMAGE: ${{ secrets.DISABLE_COVER_IMAGE }}
         run: python digest.py

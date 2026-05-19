@@ -1,9 +1,21 @@
 """
-科技日报 digest.py · v13.0-day2
+科技日报 digest.py · v13.0-day2.1
 =========================
-v13.0 阶段二「换源」工程进行中。本文件为 Day 2 产物。
+v13.0 阶段二「换源」工程进行中。本文件为 Day 2.1 补丁。
 
-v13.0 Day 2 改动:
+v13.0 Day 2.1 改动(基于 Day 2 推送日志暴露的问题):
+  1. IT之家/机器之心 RSS 抓取改用 ElementTree 标准 XML 解析
+     - 原因:5/19 推送日志显示这两个源都抓到 0 条
+     - 根因:原代码用纯正则匹配 <item>,RSS 格式有任何变化都会失败
+     - 修复:换成 ElementTree.fromstring + findall(".//item")
+  2. 历史查重阈值从 60% → 75%
+     - 原因:误杀今日新闻"Sam Altman beat Elon Musk in court. Now ..."和"英伟达财报前夜黄仁勋戴尔访谈"
+     - 修复:阈值放宽,只有完全相同关键词集合才判重
+  3. NewsNow 每源 limit 20 → 30
+     - 目的:让 4 个 NewsNow 源贡献的素材从 80 条 → 120 条
+     - 给 DeepSeek 更大选择空间
+
+v13.0 Day 2 改动(继承):
   1. Prompt 严格化「方案 A 边界」(修复 v13.0-day1.1 推送中的英文照搬问题)
      - 媒体名前置叙述/新闻标题/媒体报道描述 → 必须全部中译
      - 唯一保留英文原文的情况:具体人物原话(有引号),用「中译。原文:'EN'」格式
@@ -825,11 +837,16 @@ def _extract_keywords(title):
     return tokens & KEYWORD_VOCAB
 
 
-def is_duplicate_with_history(title, history_titles, threshold=0.6):
+def is_duplicate_with_history(title, history_titles, threshold=0.75):
     """判断 title 是否和历史标题重复
     
     1. 精确匹配（去空格后字符串完全相同）
     2. 关键词模糊匹配（实体词集合相似度 ≥ threshold）
+    
+    v13.0-day2.1: 阈值从 0.6 → 0.75
+    原因:0.6 太严格,把"马斯克诉 OpenAI 案被驳回(昨日已报)"和
+    "Sam Altman beat Elon Musk in court. Now ..."(今日新转折)误判成同一事件,
+    导致新事件被过滤。提高到 0.75 后,只有"完全相同关键词集合"才会判重复。
     
     返回 (is_dup, matched_history_title or None)
     """
@@ -1208,6 +1225,7 @@ def fetch_anthropic_news():
 # ============================================================
 
 def fetch_ithome():
+    """IT 之家 RSS(v13.0-day2.1 改用 ElementTree 标准 XML 解析,更鲁棒)"""
     print("抓取 IT之家 RSS...")
     try:
         resp = requests.get(
@@ -1216,32 +1234,42 @@ def fetch_ithome():
             timeout=20,
         )
         resp.encoding = "utf-8"
-        items = re.findall(
-            r"<item>\s*<title><!\[CDATA\[(.*?)\]\]></title>\s*"
-            r"<link>(.*?)</link>\s*"
-            r"<description><!\[CDATA\[(.*?)\]\]></description>\s*"
-            r"(?:<pubDate>(.*?)</pubDate>)?",
-            resp.text,
-            re.DOTALL,
-        )
+        root = ElementTree.fromstring(resp.content)
         articles = []
-        for title, link, desc, pubdate in items[:30]:
+        for item in root.findall(".//item")[:30]:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            desc_el = item.find("description")
+            pub_el = item.find("pubDate")
+            
+            title = (title_el.text or "").strip() if title_el is not None else ""
+            link = (link_el.text or "").strip() if link_el is not None else ""
+            desc = ""
+            if desc_el is not None and desc_el.text:
+                # 去 HTML 标签和 CDATA 残留
+                desc = re.sub(r"<[^>]+>", "", desc_el.text).strip()[:300]
+            pub_date = (pub_el.text or "").strip() if pub_el is not None else ""
+            
+            if not title:
+                continue
+            
             articles.append({
-                "title": title.strip(),
-                "url": link.strip(),
-                "summary": re.sub(r"<[^>]+>", "", desc).strip()[:300],
+                "title": title,
+                "url": link,
+                "summary": desc,
                 "source": "IT之家",
-                "pub_time": pubdate.strip() if pubdate else "",
+                "pub_time": pub_date,
                 "lang": "zh",
             })
         print(f"  IT之家 抓到 {len(articles)} 条")
         return articles
     except Exception as e:
-        print(f"  IT之家 抓取失败: {e}")
+        print(f"  IT之家 抓取失败: {type(e).__name__}: {e}")
         return []
 
 
 def fetch_jiqizhixin():
+    """机器之心 RSS(v13.0-day2.1 改用 ElementTree 标准 XML 解析,更鲁棒)"""
     print("抓取 机器之心 RSS...")
     try:
         resp = requests.get(
@@ -1250,30 +1278,36 @@ def fetch_jiqizhixin():
             timeout=20,
         )
         resp.encoding = "utf-8"
-        items = re.findall(
-            r"<item>\s*<title>(.*?)</title>\s*"
-            r"<link>(.*?)</link>\s*"
-            r"(?:<description>(.*?)</description>)?\s*"
-            r"(?:<pubDate>(.*?)</pubDate>)?",
-            resp.text,
-            re.DOTALL,
-        )
+        root = ElementTree.fromstring(resp.content)
         articles = []
-        for title, link, desc, pubdate in items[:30]:
-            t = re.sub(r"<!\[CDATA\[|\]\]>", "", title).strip()
-            d = re.sub(r"<!\[CDATA\[|\]\]>|<[^>]+>", "", desc or "").strip()[:300]
+        for item in root.findall(".//item")[:30]:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            desc_el = item.find("description")
+            pub_el = item.find("pubDate")
+            
+            title = (title_el.text or "").strip() if title_el is not None else ""
+            link = (link_el.text or "").strip() if link_el is not None else ""
+            desc = ""
+            if desc_el is not None and desc_el.text:
+                desc = re.sub(r"<[^>]+>", "", desc_el.text).strip()[:300]
+            pub_date = (pub_el.text or "").strip() if pub_el is not None else ""
+            
+            if not title:
+                continue
+            
             articles.append({
-                "title": t,
-                "url": link.strip(),
-                "summary": d,
+                "title": title,
+                "url": link,
+                "summary": desc,
                 "source": "机器之心",
-                "pub_time": pubdate.strip() if pubdate else "",
+                "pub_time": pub_date,
                 "lang": "zh",
             })
         print(f"  机器之心 抓到 {len(articles)} 条")
         return articles
     except Exception as e:
-        print(f"  机器之心 抓取失败: {e}")
+        print(f"  机器之心 抓取失败: {type(e).__name__}: {e}")
         return []
 
 
@@ -1331,7 +1365,7 @@ NEWSNOW_SOURCES = [
 ]
 
 
-def fetch_newsnow_source(source_id, source_name, limit=20):
+def fetch_newsnow_source(source_id, source_name, limit=30):
     """从 NewsNow API 抓取单个源
     
     返回标准 dict 列表（与 v11 其他 fetch_xxx 函数保持一致）
